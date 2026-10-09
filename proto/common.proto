@@ -1,0 +1,146 @@
+﻿syntax = "proto3";
+
+package common;
+
+import "google/protobuf/timestamp.proto";
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GENERIC CONTRACT TYPES (common.proto)
+
+// ═════════════════════════ 1. COMMAND RESULTS ══════════════════════════════
+// Per-item outcome, shared by all Place* / Remove* responses.
+
+message Ack {
+  string code = 1;    // "DONE", "CREATED", "UPDATED", "NO ACTION", "REPLACED"
+  string message = 2;
+}
+
+message Error {
+  string code = 1;    // "NOT_FOUND", "ALREADY_EXISTS", "INVALID_ARGUMENT",
+                      // "UNAVAILABLE", "RESOURCE_EXHAUSTED", ...
+  string message = 2;
+}
+
+message ItemResult {
+  string id = 1;
+  oneof outcome {
+    Ack ack = 2;
+    Error error = 3;
+  }
+}
+
+message ItemResults {
+  repeated ItemResult results = 1;
+}
+
+
+// ═════════════════════════════ 2. PLACE ════════════════════════════════════
+// Write verbs: create / update / upsert entities.
+
+// How a Place* call treats an entity whose id already exists.
+enum PlaceMode {
+  PLACE_MODE_UNSPECIFIED = 0;  // = PLACE_MODE_UPSERT
+  PLACE_MODE_UPSERT      = 1;  // create if absent, update if present
+  PLACE_MODE_CREATE      = 2;  // Error "ALREADY_EXISTS" if present
+  PLACE_MODE_UPDATE      = 3;  // Error "NOT_FOUND" if absent
+}
+
+// Call policy for Place* RPCs (one decision for the whole batch).
+message PlaceOptions {
+  PlaceMode mode = 1;   // ONE mode per call; mixed batches = several calls
+  bool dry_run = 2;     // validate + return ItemResults, mutate nothing
+  string reason = 3;    // free-form audit note
+}
+
+// ═════════════════════════════ 3. REMOVE ═══════════════════════════════════
+// Delete verbs: remove entities by id.
+
+// Call policy for Remove* RPCs (one decision for the whole batch).
+message RemoveOptions {
+  enum MissingPolicy {
+    MISSING_POLICY_UNSPECIFIED = 0;  // = MISSING_POLICY_OK -> Remove stays idempotent
+    MISSING_POLICY_OK          = 1;  // absent id -> Ack "NO ACTION"
+    MISSING_POLICY_ERROR       = 2;  // absent id -> Error "NOT_FOUND"
+  }
+  MissingPolicy missing = 1;
+  bool dry_run = 2;
+  string reason = 3;
+}
+
+// Generic Remove* request: a set of entity ids + call policy.
+message RemoveRequest {
+  repeated string ids = 1;
+  RemoveOptions options = 2;
+}
+
+// ═══════════════════════════ 4. ASSIGN ═════════════════════════════════════
+
+message Assignment {
+  string from_id = 1;  // item being assigned
+  string to_id = 2;    // link target
+}
+
+// Call policy for Assign* RPCs (one decision for the whole batch).
+message AssignOptions {
+  bool dry_run = 1;
+  string reason = 2;
+}
+
+// Generic Assign* request: from -> to pairs + call policy.
+message AssignRequest {
+  repeated Assignment items = 1;
+  AssignOptions options = 2;
+}
+
+// ═════════════════════ 5. LIST / READ (event log) ══════════════════════════════
+// Read verbs: unified snapshot / event-log access for every List* RPC.
+
+message ReadOptions {
+
+  // How items are delivered on the stream.
+  enum View {
+    VIEW_UNSPECIFIED = 0;  // = VIEW_SNAPSHOT
+    VIEW_SNAPSHOT    = 1;  // latest state of each item (default)
+    VIEW_EVENTS      = 2;  // change events: OP_CREATED / OP_UPDATED / OP_DELETED
+  }
+  View view = 1;
+
+  // Lower bound over the ordered event log; unset = from the beginning.
+  oneof start {
+    string after_event_id = 2;                 // resume after a previously seen cursor
+    google.protobuf.Timestamp after_time = 3;  // events strictly after this instant
+  }
+
+  // Upper bound; unset = up to now.
+  oneof end {
+    string before_event_id = 4;                // cursor window (chunked replay)
+    google.protobuf.Timestamp before_time = 5; // events strictly before this instant
+    bool live = 6;                             // no upper bound — follow until cancel
+  }
+
+  // Emit at most N messages, then end the stream (catch-up pagination).
+  uint32 max_events = 7;
+}
+
+// Scope for List* "to_*" link filters; empty or unset = no filter.
+message Ids {
+  repeated string ids = 1;
+}
+
+// Operation carried by an event. Shared by all entities.
+enum Op {
+  OP_UNSPECIFIED = 0;
+  OP_SNAPSHOT = 1;  // current state of an item (view = VIEW_SNAPSHOT only)
+  OP_CREATED  = 2;
+  OP_UPDATED  = 3;
+  OP_DELETED  = 4;
+}
+
+// Stream envelope shared by all entities.
+message EventMeta {
+  // Cursor: pass back as ReadOptions.after_event_id to resume exactly here.
+  // Make it sortable (ULID / snowflake) so the cursor is a well-defined order.
+  string event_id = 1;
+  google.protobuf.Timestamp time = 2;
+  Op op = 3;
+}

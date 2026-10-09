@@ -1,0 +1,27 @@
+﻿[package]
+name = "fleet_host"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+# --- gRPC contract (compiled from proto/provider.proto) ---
+tonic = "0.14"
+tonic-prost = "0.14"
+prost = "0.14"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
+tokio-stream = "1"
+
+# --- SQLite compiled INTO the binary (no libsqlite3 in the image) ---
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+[build-dependencies]
+tonic-prost-build = "0.14"
+protoc-bin-vendored = "3"       # vendored protoc => no apt/apk, no system deps
+
+[profile.release]
+opt-level = "z"                 # image size == binary size on scratch
+lto = true
+codegen-units = 1
+strip = true

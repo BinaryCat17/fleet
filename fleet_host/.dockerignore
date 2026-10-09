@@ -1,0 +1,6 @@
+﻿target/
+data/
+.git/
+Dockerfile
+docker-compose.yml
+.env

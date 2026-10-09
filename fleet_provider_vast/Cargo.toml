@@ -1,0 +1,28 @@
+﻿[package]
+name = "fleet_provider_vast"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+# --- gRPC contract (compiled from proto/provider.proto) ---
+tonic = "0.14"
+tonic-prost = "0.14"
+prost = "0.14"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
+tokio-stream = "1"
+tonic-health = "0.14"
+
+# --- outbound HTTPS to the VAST API (rustls => no OpenSSL, no system libs) ---
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+
+[build-dependencies]
+tonic-prost-build = "0.14"
+protoc-bin-vendored = "3"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true

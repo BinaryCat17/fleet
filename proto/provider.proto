@@ -1,0 +1,134 @@
+﻿syntax = "proto3";
+
+package provider;
+
+import "common.proto";
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BUSINESS CONTRACT — stateless adapter over a rental marketplace (for example vast.ai).
+// All truth about instances comes from upstream; nothing is stored here.
+
+service Provider {
+  rpc SearchInstances (SearchInstancesRequest) returns (SearchInstancesResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
+  rpc RentInstances   (RentInstancesRequest)   returns (RentInstancesResponse) {
+    option idempotency_level = IDEMPOTENT;
+  }
+
+  rpc ListInstances   (ListInstancesRequest)   returns (ListInstancesResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
+  rpc RemoveInstances (common.RemoveRequest)   returns (common.ItemResults) {
+    option idempotency_level = IDEMPOTENT;
+  }
+}
+
+// ─────────────────────────── 1. search ───────────────────────────
+
+message SearchInstancesRequest {
+  SearchInstancesFilter filter = 1;
+  uint32 limit = 2;              // 0 = provider default (e.g. 25)
+}
+
+// All fields optional (= filter by what's set).
+// "min_ram_mb not set" ≠ "min_ram_mb: 0" — presence matters.
+message SearchInstancesFilter {
+  optional string gpu_name = 1;
+  optional uint32 num_gpus = 2;
+  optional uint32 min_cpu_cores = 3;
+  optional uint64 min_ram_mb = 4;
+  optional uint64 min_disk_gb = 5;
+  optional double max_price_per_hour = 6;
+  optional string location = 7;
+}
+
+message SearchInstancesResponse {
+  repeated InstanceOffer offers = 1;
+}
+
+message InstanceOffer {
+  string id = 1;                  // pass into RentInstancesRequest.items[].offer_id
+  string gpu_name = 2;
+  uint32 num_gpus = 3;
+  uint32 cpu_cores = 4;
+  uint64 ram_mb = 5;
+  uint64 disk_gb = 6;
+  string location = 7;
+  double price_per_hour = 8;
+  double reliability = 9;
+}
+
+// ─────────────────────────── 2. rent (batch) ───────────────────────────
+
+message RentInstancesRequest {
+  repeated RentInstancesItem items = 1;
+}
+
+message RentInstancesItem {
+  string offer_id = 1;
+  optional string image = 2;
+  optional string entrypoint_script = 3;
+}
+
+message RentInstancesResponse {
+  repeated RentInstancesResult results = 1;
+}
+
+message RentInstancesResult {
+  string offer_id = 1;
+  oneof outcome {
+    Instance instance = 2;
+    common.Error error = 3;
+  }
+}
+
+// ─────────────────────────── 3. list ───────────────────────────
+
+message ListInstancesRequest {
+
+}
+
+message ListInstancesResponse {
+  repeated Instance instances = 1;
+}
+
+message Instance {
+  string id = 1;
+  string offer_id = 2;
+  InstanceStatus status = 3;
+  string provider_status = 4;     // raw upstream status, verbatim
+  string gpu_name = 5;
+  uint32 num_gpus = 6;
+  double price_per_hour = 7;
+  string location = 8;
+  int64 started_at_unix_ms = 9;
+}
+
+enum InstanceStatus {
+  INSTANCE_STATUS_UNSPECIFIED = 0;
+  INSTANCE_STATUS_PENDING = 1;
+  INSTANCE_STATUS_RUNNING = 2;
+  INSTANCE_STATUS_STOPPED = 3;
+  INSTANCE_STATUS_ERROR = 4;
+}
+
+// ─────────────────────────── 4. destroy (batch) ───────────────────────────
+
+message DestroyInstancesRequest {
+  repeated string instance_ids = 1;
+}
+
+message DestroyInstancesResponse {
+  repeated DestroyInstancesResult results = 1;
+}
+
+message DestroyInstancesResult {
+  string instance_id = 1;
+  oneof outcome {
+    bool destroyed = 2;
+    common.Error error = 3;
+  }
+}

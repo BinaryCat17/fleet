@@ -1,0 +1,257 @@
+﻿syntax = "proto3";
+
+package host;
+
+import "common.proto";
+
+service Host {
+
+  // ═══════════════════════ feature: ORDERS ══════════════════════════════
+
+  rpc PlaceOrders  (PlaceOrdersRequest)  returns (common.ItemResults) {
+    option idempotency_level = IDEMPOTENT;  // mode = CREATE: a retry reports
+                                            // "ALREADY_EXISTS" -> treat as success
+  }
+
+  rpc RemoveOrders (common.RemoveRequest)       returns (common.ItemResults) {
+    option idempotency_level = IDEMPOTENT;
+  }
+
+  rpc ListOrders   (ListOrdersRequest)   returns (stream OrderEvent) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
+  // ═══════════════════════ feature: BUDGETS ═════════════════════════════
+
+  rpc PlaceBudgets (PlaceBudgetsRequest) returns (common.ItemResults) {
+    option idempotency_level = IDEMPOTENT;
+  }
+
+  rpc RemoveBudgets(common.RemoveRequest)       returns (common.ItemResults) {
+    option idempotency_level = IDEMPOTENT;
+  }
+
+  rpc AssignBudgetsToOrders (common.AssignRequest) returns (common.ItemResults) {
+    option idempotency_level = IDEMPOTENT;
+  }
+
+  rpc ListBudgets  (ListBudgetsRequest)  returns (stream BudgetEvent) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
+  // ═══════════════════════ feature: SPECS ═══════════════════════════════
+
+  rpc PlaceSpecs   (PlaceSpecsRequest)   returns (common.ItemResults) {
+    option idempotency_level = IDEMPOTENT;
+  }
+
+  rpc RemoveSpecs  (common.RemoveRequest)       returns (common.ItemResults) {
+    option idempotency_level = IDEMPOTENT;
+  }
+
+  rpc AssignSpecsToOrders (common.AssignRequest) returns (common.ItemResults) {
+    option idempotency_level = IDEMPOTENT;
+  }
+
+  rpc ListSpecs    (ListSpecsRequest)    returns (stream SpecEvent) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
+  // ═══════════════════════ feature: KNOWN_MACHINES ═══════════════════════════════
+  
+  rpc ListKnownMachines    (ListKnownMachinesRequest)    returns (stream KnownMachineEvent) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
+  // ═══════════════════════ feature: SHIPS ═══════════════════════════════
+  
+  rpc AssignShipsToOrders        (common.AssignRequest) returns (common.ItemResults) {
+    option idempotency_level = IDEMPOTENT;
+  }
+
+  rpc AssignShipsToKnownMachines (common.AssignRequest) returns (common.ItemResults) {
+    option idempotency_level = IDEMPOTENT;
+  }
+
+  rpc ListShips    (ListShipsRequest)    returns (stream ShipEvent) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
+  // ═══════════════════════ feature: STATUSES ═════════════════════════════
+  
+  rpc ListStatuses (ListStatusesRequest) returns (stream StatusEvent) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
+  // ═══════════════════════ feature: LOGS ═════════════════════════════════
+  
+  rpc ListLogs     (ListLogsRequest)     returns (stream LogEvent) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
+}
+
+// ═══════════════════════ feature: ORDERS ══════════════════════════════
+
+message Order {
+  string id = 1;
+  // domain fields go here
+}
+
+message PlaceOrdersRequest {
+  repeated Order items = 1;
+  common.PlaceOptions options = 2;
+}
+
+message ListOrdersRequest {
+  common.ReadOptions options = 1;
+  // order-specific filters can go here
+}
+
+message OrderEvent {
+  common.EventMeta meta = 1;
+  oneof item {
+    Order order = 2;
+    string deleted_id = 3;
+  }
+}
+
+// ═══════════════════════ feature: BUDGETS ═════════════════════════════
+
+message Budget {
+  string id = 1;
+  // domain fields go here
+}
+
+message PlaceBudgetsRequest {
+  repeated Budget items = 1;
+  common.PlaceOptions options = 2;
+}
+
+message ListBudgetsRequest {
+  common.ReadOptions options = 1;
+  common.Ids to_orders = 2;
+  // budget-specific filters can go here
+}
+
+message BudgetEvent {
+  common.EventMeta meta = 1;
+  oneof item {
+    Budget budget = 2; 
+    string deleted_id = 3;
+  }
+}
+
+// ═══════════════════════ feature: SPECS ═══════════════════════════════
+
+message Spec {
+  string id = 1;
+  // domain fields go here
+}
+
+message PlaceSpecsRequest {
+  repeated Spec items = 1;
+  common.PlaceOptions options = 2;
+}
+
+message ListSpecsRequest {
+  common.ReadOptions options = 1;
+  common.Ids to_orders = 2;
+  // spec-specific filters can go here
+}
+
+message SpecEvent {
+  common.EventMeta meta = 1;
+  oneof item {
+    Spec spec = 2;
+    string deleted_id = 3;
+  }
+}
+
+// ═══════════════════════ feature: KNOWN_MACHINES ══════════════════════════════
+
+message KnownMachine {
+  string id = 1;
+  // domain fields go here
+}
+
+message ListKnownMachinesRequest {
+  common.ReadOptions options = 1;
+  // known-machine-specific filters can go here
+}
+
+message KnownMachineEvent {
+  common.EventMeta meta = 1;
+  oneof item {
+    KnownMachine known_machine = 2;
+    string deleted_id = 3;
+  }
+}
+
+// ═══════════════════════ feature: SHIPS ══════════════════════════════
+
+message Ship {
+  string id = 1;
+  string order_id = 2;
+  string known_machine_id = 3;
+  // domain fields go here
+}
+
+message ListShipsRequest {
+  common.ReadOptions options = 1;
+  common.Ids to_orders = 2;
+  common.Ids to_known_machines = 3;
+  // ship-specific filters can go here
+}
+
+message ShipEvent {
+  common.EventMeta meta = 1;
+  oneof item {
+    Ship ship = 2;
+    string deleted_id = 3;
+  }
+}
+
+// ═══════════════════════ feature: STATUSES ══════════════════════════════
+
+message Status {
+  string id = 1;
+  string ship_id = 2;
+  // domain fields go here
+}
+
+message ListStatusesRequest {
+  common.ReadOptions options = 1;
+  common.Ids to_ships = 2;
+  // status-specific filters can go here
+}
+
+message StatusEvent {
+  common.EventMeta meta = 1;
+  oneof item {
+    Status status = 2;
+    string deleted_id = 3;
+  }
+}
+
+// ═══════════════════════ feature: LOGS ══════════════════════════════
+
+message Log {
+  string id = 1;
+  string ship_id = 2;
+  // domain fields go here
+}
+
+message ListLogsRequest {
+  common.ReadOptions options = 1;
+  common.Ids to_ships = 2;
+  // log-specific filters can go here
+}
+
+message LogEvent {
+  common.EventMeta meta = 1;
+  oneof item {
+    Log log = 2;
+    string deleted_id = 3;
+  }
+}
