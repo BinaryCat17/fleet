@@ -73,26 +73,7 @@ message RemoveRequest {
   RemoveOptions options = 2;
 }
 
-// ═══════════════════════════ 4. ASSIGN ═════════════════════════════════════
-
-message Assignment {
-  string from_id = 1;  // item being assigned
-  string to_id = 2;    // link target
-}
-
-// Call policy for Assign* RPCs (one decision for the whole batch).
-message AssignOptions {
-  bool dry_run = 1;
-  string reason = 2;
-}
-
-// Generic Assign* request: from -> to pairs + call policy.
-message AssignRequest {
-  repeated Assignment items = 1;
-  AssignOptions options = 2;
-}
-
-// ═════════════════════ 5. LIST / READ (event log) ══════════════════════════════
+// ═════════════════════ 4. LIST / READ (event log) ══════════════════════════════
 // Read verbs: unified snapshot / event-log access for every List* RPC.
 
 message ReadOptions {

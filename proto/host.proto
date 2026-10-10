@@ -31,10 +31,6 @@ service Host {
     option idempotency_level = IDEMPOTENT;
   }
 
-  rpc AssignBudgetsToOrders (common.AssignRequest) returns (common.ItemResults) {
-    option idempotency_level = IDEMPOTENT;
-  }
-
   rpc ListBudgets  (ListBudgetsRequest)  returns (stream BudgetEvent) {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
@@ -49,10 +45,6 @@ service Host {
     option idempotency_level = IDEMPOTENT;
   }
 
-  rpc AssignSpecsToOrders (common.AssignRequest) returns (common.ItemResults) {
-    option idempotency_level = IDEMPOTENT;
-  }
-
   rpc ListSpecs    (ListSpecsRequest)    returns (stream SpecEvent) {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
@@ -64,17 +56,13 @@ service Host {
   }
 
   // ═══════════════════════ feature: SHIPS ═══════════════════════════════
-  
-  rpc AssignShipsToOrders        (common.AssignRequest) returns (common.ItemResults) {
-    option idempotency_level = IDEMPOTENT;
-  }
-
-  rpc AssignShipsToKnownMachines (common.AssignRequest) returns (common.ItemResults) {
-    option idempotency_level = IDEMPOTENT;
-  }
 
   rpc ListShips    (ListShipsRequest)    returns (stream ShipEvent) {
     option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
+  rpc RenewShips   (RenewShipsRequest)   returns (common.ItemResults) {
+    option idempotency_level = IDEMPOTENT;
   }
 
   // ═══════════════════════ feature: STATUSES ═════════════════════════════
@@ -95,6 +83,9 @@ service Host {
 
 message Order {
   string id = 1;
+  string name = 2;
+  string budget_id = 3;
+  string spec_id = 4;
   // domain fields go here
 }
 
@@ -111,7 +102,7 @@ message ListOrdersRequest {
 message OrderEvent {
   common.EventMeta meta = 1;
   oneof item {
-    Order order = 2;
+    Order data = 2;
     string deleted_id = 3;
   }
 }
@@ -120,6 +111,10 @@ message OrderEvent {
 
 message Budget {
   string id = 1;
+  optional double total_budget = 2;
+  optional double max_price_per_hour = 3;
+  optional double lease_timeout = 4;
+  optional double health_timeout = 5;
   // domain fields go here
 }
 
@@ -130,14 +125,14 @@ message PlaceBudgetsRequest {
 
 message ListBudgetsRequest {
   common.ReadOptions options = 1;
-  common.Ids to_orders = 2;
+  optional common.Ids filter_to_orders = 2;
   // budget-specific filters can go here
 }
 
 message BudgetEvent {
   common.EventMeta meta = 1;
   oneof item {
-    Budget budget = 2; 
+    Budget data = 2; 
     string deleted_id = 3;
   }
 }
@@ -146,7 +141,12 @@ message BudgetEvent {
 
 message Spec {
   string id = 1;
-  // domain fields go here
+  optional string gpu_name = 2;
+  optional uint32 num_gpus = 3;
+  optional uint32 min_cpu_cores = 4;
+  optional uint64 min_ram_mb = 5;
+  optional uint64 min_disk_gb = 6;
+  optional string location = 7;
 }
 
 message PlaceSpecsRequest {
@@ -156,14 +156,13 @@ message PlaceSpecsRequest {
 
 message ListSpecsRequest {
   common.ReadOptions options = 1;
-  common.Ids to_orders = 2;
-  // spec-specific filters can go here
+  optional common.Ids to_orders = 2;
 }
 
 message SpecEvent {
   common.EventMeta meta = 1;
   oneof item {
-    Spec spec = 2;
+    Spec data = 2;
     string deleted_id = 3;
   }
 }
@@ -172,18 +171,22 @@ message SpecEvent {
 
 message KnownMachine {
   string id = 1;
-  // domain fields go here
+  string gpu_name = 2;
+  uint32 num_gpus = 3;
+  uint32 cpu_cores = 4;
+  uint64 ram_mb = 5;
+  uint64 disk_gb = 6;
+  string location = 7;
 }
 
 message ListKnownMachinesRequest {
   common.ReadOptions options = 1;
-  // known-machine-specific filters can go here
 }
 
 message KnownMachineEvent {
   common.EventMeta meta = 1;
   oneof item {
-    KnownMachine known_machine = 2;
+    KnownMachine data = 2;
     string deleted_id = 3;
   }
 }
@@ -194,64 +197,120 @@ message Ship {
   string id = 1;
   string order_id = 2;
   string known_machine_id = 3;
-  // domain fields go here
 }
 
 message ListShipsRequest {
   common.ReadOptions options = 1;
-  common.Ids to_orders = 2;
-  common.Ids to_known_machines = 3;
-  // ship-specific filters can go here
+  optional common.Ids filter_to_orders = 2;
+  optional common.Ids filter_to_known_machines = 3;
+}
+
+message RenewShipsRequest {
+  common.ReadOptions options = 1;
+  // empty filters: renew ALL ships; otherwise renew only matching ships
+  optional common.Ids filter_to_orders = 2;
+  optional common.Ids filter_to_ships = 3;
 }
 
 message ShipEvent {
   common.EventMeta meta = 1;
   oneof item {
-    Ship ship = 2;
+    Ship data = 2;
     string deleted_id = 3;
   }
 }
 
 // ═══════════════════════ feature: STATUSES ══════════════════════════════
 
+enum StatusCode {
+  STATUS_CODE_UNSPECIFIED = 0;
+  STATUS_CODE_PENDING = 1;
+  STATUS_CODE_PULLING = 2;
+  STATUS_CODE_INSTALLING = 3;
+  STATUS_CODE_RUNNING = 4;
+  STATUS_CODE_STOPPED = 5;
+  STATUS_CODE_ERROR = 6;
+}
+
 message Status {
   string id = 1;
   string ship_id = 2;
-  // domain fields go here
+  StatusCode code = 3;
+  string message = 4;
 }
 
 message ListStatusesRequest {
   common.ReadOptions options = 1;
-  common.Ids to_ships = 2;
-  // status-specific filters can go here
+  optional common.Ids filter_to_ships = 2;
+  optional StatusCode filter_code = 3;
 }
 
 message StatusEvent {
   common.EventMeta meta = 1;
   oneof item {
-    Status status = 2;
+    Status data = 2;
+    string deleted_id = 3;
+  }
+}
+
+// ═══════════════════════ feature: ALARMS ══════════════════════════════
+
+enum AlarmCode {
+  ALARM_CODE_HEALTHCHECK = 0;
+  ALARM_CODE_LEASE = 1;
+}
+
+message Alarm {
+  string id = 1;
+  string ship_id = 2;
+  AlarmCode code = 3;
+  string message = 4;
+}
+
+message ListAlarmsRequest {
+  common.ReadOptions options = 1;
+  optional common.Ids filter_to_ships = 2;
+  optional AlarmCode filter_code = 3;
+}
+
+message AlarmEvent {
+  common.EventMeta meta = 1;
+  oneof item {
+    AlarmEvent data = 2;
     string deleted_id = 3;
   }
 }
 
 // ═══════════════════════ feature: LOGS ══════════════════════════════
 
+enum LOG_IMPORTANCE {
+  LOG_IMPORTANCE_UNSPECIFIED = 0;
+  LOG_IMPORTANCE_DEBUG = 1;
+  LOG_IMPORTANCE_INFO = 2;
+  LOG_IMPORTANCE_WARNING = 3;
+  LOG_IMPORTANCE_ERROR = 4;
+  LOG_IMPORTANCE_CRITICAL = 5;
+}
+
 message Log {
   string id = 1;
   string ship_id = 2;
-  // domain fields go here
+  LOG_IMPORTANCE importance = 3;
+  string source = 4;
+  string message = 5;
 }
 
 message ListLogsRequest {
   common.ReadOptions options = 1;
-  common.Ids to_ships = 2;
-  // log-specific filters can go here
+  optional common.Ids filter_to_ships = 2;
+  optional LOG_IMPORTANCE filter_importance = 3;
+  optional string filter_source = 4;
 }
 
 message LogEvent {
   common.EventMeta meta = 1;
   oneof item {
-    Log log = 2;
+    Log data = 2;
     string deleted_id = 3;
   }
 }
