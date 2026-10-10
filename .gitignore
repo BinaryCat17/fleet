@@ -1,5 +1,5 @@
 ﻿# Local MCP config may contain API keys — never commit it
-.vscode/mcp.json
+.vscode
 
 # Rust
 target/

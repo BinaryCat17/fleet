@@ -71,6 +71,12 @@ service Host {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
 
+  // ═══════════════════════ feature: ALARMS ═════════════════════════════
+  
+  rpc ListAlarms (ListAlarmsRequest) returns (stream AlarmEvent) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
   // ═══════════════════════ feature: LOGS ═════════════════════════════════
   
   rpc ListLogs     (ListLogsRequest)     returns (stream LogEvent) {
@@ -276,7 +282,7 @@ message ListAlarmsRequest {
 message AlarmEvent {
   common.EventMeta meta = 1;
   oneof item {
-    AlarmEvent data = 2;
+    Alarm data = 2;
     string deleted_id = 3;
   }
 }

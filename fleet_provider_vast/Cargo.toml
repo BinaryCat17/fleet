@@ -6,20 +6,27 @@ edition = "2021"
 [workspace]
 
 [dependencies]
-# --- gRPC contract (compiled from proto/provider.proto) ---
-tonic = "0.14"
-tonic-prost = "0.14"
-prost = "0.14"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
-tokio-stream = "1"
-tonic-health = "0.14"
+# --- ConnectRPC contract (compiled from proto/provider.proto + proto/common.proto) ---
+connectrpc = { version = "0.9", features = ["axum"] }              # axum: Router::into_axum_service
+connectrpc-health = { version = "0.9", default-features = false }   # server side only
+connectrpc-reflection = { version = "0.9", default-features = false }
+# --- runtime types referenced by the generated code (same set connectrpc-health uses) ---
+buffa = { version = "0.9", features = ["json"] }
+buffa-types = { version = "0.9", features = ["json"] }            # google.protobuf.* (via common.proto)
+serde = { version = "1", features = ["derive"] }
+axum = { version = "0.8", features = ["http2"] }                    # h2c for gRPC clients
+futures = "0.3"                                                     # buffered batch fan-out
+anyhow = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal"] }
 
 # --- outbound HTTPS to the VAST API (rustls => no OpenSSL, no system libs) ---
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+serde_json = "1"
 
 [build-dependencies]
-tonic-prost-build = "0.14"
-protoc-bin-vendored = "3"
+connectrpc-build = "0.9"
+protoc-bin-vendored = "3"       # vendored protoc => no apt/apk, no system deps
 
 [profile.release]
 opt-level = "z"

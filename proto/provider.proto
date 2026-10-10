@@ -114,21 +114,3 @@ enum InstanceStatus {
   INSTANCE_STATUS_STOPPED = 3;
   INSTANCE_STATUS_ERROR = 4;
 }
-
-// ─────────────────────────── 4. destroy (batch) ───────────────────────────
-
-message DestroyInstancesRequest {
-  repeated string instance_ids = 1;
-}
-
-message DestroyInstancesResponse {
-  repeated DestroyInstancesResult results = 1;
-}
-
-message DestroyInstancesResult {
-  string instance_id = 1;
-  oneof outcome {
-    bool destroyed = 2;
-    common.Error error = 3;
-  }
-}

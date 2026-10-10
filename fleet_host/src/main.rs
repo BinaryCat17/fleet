@@ -1,11 +1,12 @@
 ﻿use connectrpc::client::{ClientConfig, Http2Connection};
+use fleet_host::proto::provider::{ListInstancesRequest, ProviderClient};
 use std::time::Duration;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // ── step 1: transport ─────────────────────────────────────────
-    let provider_url: hyper::Uri = std::env::var("PROVIDER_URL")
-        .expect("PROVIDER_URL, e.g. http://fleet_provider_vast:50051")?
+    let provider_url: http::Uri = std::env::var("PROVIDER_URL")
+        .expect("PROVIDER_URL, e.g. http://fleet_provider_vast:50051")
         .parse()?;
 
     let transport = Http2Connection::connect_plaintext(provider_url.clone())
@@ -19,6 +20,12 @@ async fn main() -> anyhow::Result<()> {
     // ── step 3: generated client ──────────────────────────────────
     let client = ProviderClient::new(transport, config);         // 🔄 VARIABLE: which service client
 
+    // ── step 4: smoke call — proves client ↔ server end-to-end ───
+    match client.list_instances(ListInstancesRequest::default()).await {
+        Ok(resp) => println!("provider online: {} instance(s)", resp.into_owned().instances.len()),
+        // reachable but failed upstream (e.g. no real VAST_API_KEY) — still proves the RPC path
+        Err(e) => println!("provider reachable; list_instances: {e}"),
+    }
 
     Ok(())
 }
