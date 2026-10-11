@@ -69,7 +69,7 @@ message RentInstancesRequest {
 
 message RentInstancesItem {
   string offer_id = 1;
-  optional string image = 2;
+  string image = 2;               // REQUIRED: container image to boot — no provider default
   optional string entrypoint_script = 3;
 }
 

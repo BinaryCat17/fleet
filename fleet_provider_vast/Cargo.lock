@@ -394,6 +394,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "fleet-proto-common"
+version = "0.1.0"
+dependencies = [
+ "buffa",
+ "buffa-types",
+ "connectrpc-build",
+ "protoc-bin-vendored",
+ "serde",
+]
+
+[[package]]
+name = "fleet-proto-provider"
+version = "0.1.0"
+dependencies = [
+ "buffa",
+ "buffa-types",
+ "connectrpc",
+ "connectrpc-build",
+ "fleet-proto-common",
+ "protoc-bin-vendored",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
 name = "fleet_provider_vast"
 version = "0.1.0"
 dependencies = [
@@ -402,11 +427,11 @@ dependencies = [
  "buffa",
  "buffa-types",
  "connectrpc",
- "connectrpc-build",
  "connectrpc-health",
  "connectrpc-reflection",
+ "fleet-proto-common",
+ "fleet-proto-provider",
  "futures",
- "protoc-bin-vendored",
  "reqwest",
  "serde",
  "serde_json",

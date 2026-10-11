@@ -3,7 +3,8 @@
 use connectrpc::Router;
 use connectrpc_reflection::Reflector;
 use fleet_provider_vast::VastProvider;
-use fleet_provider_vast::proto::provider::PROVIDER_SERVICE_NAME;
+use fleet_proto_provider::provider::PROVIDER_SERVICE_NAME;
+use fleet_proto_provider::PROVIDER_DESCRIPTOR_SET;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -14,8 +15,7 @@ async fn main() -> anyhow::Result<()> {
     let (router, _health) = connectrpc_health::install_static(router, [PROVIDER_SERVICE_NAME]);
 
     // gRPC server reflection over the embedded descriptor set (grpcurl / buf curl)
-    let bytes: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/provider.fds.bin"));
-    let reflector = Reflector::from_descriptor_set_bytes(bytes)?;
+    let reflector = Reflector::from_descriptor_set_bytes(PROVIDER_DESCRIPTOR_SET)?;
     let router = connectrpc_reflection::install(router, reflector);
 
     let app = axum::Router::new()

@@ -6,7 +6,9 @@ edition = "2021"
 [workspace]
 
 [dependencies]
-# --- ConnectRPC contract (compiled from proto/provider.proto + proto/common.proto) ---
+# --- ConnectRPC contract + shared `common` (compiled once in the contract crates) ---
+fleet-proto-provider = { path = "../rust/fleet-proto-provider" }  # provider.proto + ProviderError/helpers
+fleet-proto-common = { path = "../rust/fleet-proto-common" }      # common.proto types (via extern_path)
 connectrpc = { version = "0.9", features = ["axum"] }              # axum: Router::into_axum_service
 connectrpc-health = { version = "0.9", default-features = false }   # server side only
 connectrpc-reflection = { version = "0.9", default-features = false }
@@ -23,10 +25,6 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal
 # --- outbound HTTPS to the VAST API (rustls => no OpenSSL, no system libs) ---
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 serde_json = "1"
-
-[build-dependencies]
-connectrpc-build = "0.9"
-protoc-bin-vendored = "3"       # vendored protoc => no apt/apk, no system deps
 
 [profile.release]
 opt-level = "z"

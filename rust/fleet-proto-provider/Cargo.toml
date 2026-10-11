@@ -1,0 +1,27 @@
+﻿[package]
+name = "fleet-proto-provider"
+version = "0.1.0"
+edition = "2021"
+
+# Standalone crate (own workspace root) so independent images can vendor it.
+[workspace]
+
+# The `provider` proto contract (language-neutral) + its Rust adapter. The
+# generated `provider` types reference `common`'s types *across the crate
+# boundary* via codegen `extern_path` (`.common` -> `::fleet_proto_common::common`),
+# so `common` is compiled once in `fleet-proto-common` and reused — not regenerated.
+
+[dependencies]
+# --- the shared `common` contract (types are referenced, not regenerated) ---
+fleet-proto-common = { path = "../fleet-proto-common" }
+
+# --- ConnectRPC contract runtime ---
+connectrpc = { version = "0.9", features = ["axum"] }
+buffa = { version = "0.9", features = ["json"] }
+buffa-types = { version = "0.9", features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+
+[build-dependencies]
+connectrpc-build = "0.9"
+protoc-bin-vendored = "3"

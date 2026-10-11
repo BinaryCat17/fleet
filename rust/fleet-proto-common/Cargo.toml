@@ -1,0 +1,24 @@
+﻿[package]
+name = "fleet-proto-common"
+version = "0.1.0"
+edition = "2021"
+
+# Standalone crate (its own workspace root) so independent images (fleet_host,
+# fleet_provider_vast) can vendor & path-depend on it without being merged into
+# one Cargo workspace. Each image compiles this crate into its own target dir.
+[workspace]
+
+# The proto contract is language-neutral (proto/common.proto); this crate is the
+# "Rust helper wrapper" adapter over the generated code (Buffa/ConnectRPC types).
+# Generated code lives in OUT_DIR (never hand-edited); hand-written helpers in
+# src/lib.rs build on it.
+
+[dependencies]
+# --- runtime types referenced by the generated code (same set connectrpc uses) ---
+buffa = { version = "0.9", features = ["json"] }
+buffa-types = { version = "0.9", features = ["json"] }   # google.protobuf.Timestamp
+serde = { version = "1", features = ["derive"] }
+
+[build-dependencies]
+connectrpc-build = "0.9"
+protoc-bin-vendored = "3"        # vendored protoc => no apt/apk, no system deps

@@ -1,7 +1,5 @@
 ﻿// fleet_provider_vast/src/lib.rs
 //
-// Implements the Provider contract (proto/provider.proto) statelessly
-// against the vast.ai REST API. No local state: all truth comes upstream.
 #![allow(refining_impl_trait_internal, refining_impl_trait_reachable)] // short `ServiceResult` form
 
 use std::collections::HashMap;
@@ -10,69 +8,24 @@ use connectrpc::{ConnectError, ErrorCode, RequestContext, Response, ServiceReque
 use futures::StreamExt;
 use serde_json::json;
 
-// ─────────────────────── the contract (generated) ───────────────────────
+// ─────────────────────── the contract (shared crates) ───────────────────────
+//
+// Contract types come from the shared crates — not a local `include_generated!()`.
+// `common` is compiled once in `fleet-proto-common`; `provider` in
+// `fleet-proto-provider` (which references `common` via codegen `extern_path`).
+// This crate only writes the VAST anti-corruption translation.
 
-pub mod proto {
-    connectrpc::include_generated!();
-}
-
-use proto::common::remove_options::MissingPolicy;
-use proto::common::{Ack, Error as ItemError, ItemResult, ItemResults, RemoveRequest};
-use proto::provider::{
+use fleet_proto_common::common::remove_options::MissingPolicy;
+use fleet_proto_common::common::{ItemResult, ItemResults, RemoveRequest};
+use fleet_proto_common::{item_ack, item_error};
+use fleet_proto_provider::provider::{
     Instance, InstanceOffer, InstanceStatus, ListInstancesRequest, ListInstancesResponse, Provider,
     RentInstancesItem, RentInstancesRequest, RentInstancesResponse, RentInstancesResult,
     SearchInstancesRequest, SearchInstancesResponse,
 };
-
-// ─────────────────────── provider error type (FaaS shape) ───────────────────────
-
-#[derive(thiserror::Error, Debug)]
-pub enum ProviderError {
-    #[error("not found: {0}")]
-    NotFound(String),
-    #[error("invalid argument: {0}")]
-    InvalidArgument(String),
-    #[error("upstream unavailable: {0}")]
-    Unavailable(String),
-    #[error("upstream refused: {0}")]
-    FailedPrecondition(String),
-}
-
-impl From<ProviderError> for ConnectError {
-    fn from(e: ProviderError) -> Self {
-        match e {
-            ProviderError::NotFound(m) => ConnectError::new(ErrorCode::NotFound, m),
-            ProviderError::InvalidArgument(m) => ConnectError::new(ErrorCode::InvalidArgument, m),
-            ProviderError::Unavailable(m) => ConnectError::new(ErrorCode::Unavailable, m),
-            ProviderError::FailedPrecondition(m) => ConnectError::new(ErrorCode::FailedPrecondition, m),
-        }
-    }
-}
-
-// per-item rows for batch results (oneof outcome is filled via the generated `From` impls)
-fn rent_error(offer_id: &str, code: &str, msg: impl Into<String>) -> RentInstancesResult {
-    RentInstancesResult {
-        offer_id: offer_id.to_owned(),
-        outcome: ItemError { code: code.to_owned(), message: msg.into(), ..Default::default() }.into(),
-        ..Default::default()
-    }
-}
-
-fn item_ack(id: String, code: &str, message: &str) -> ItemResult {
-    ItemResult {
-        id,
-        outcome: Ack { code: code.to_owned(), message: message.to_owned(), ..Default::default() }.into(),
-        ..Default::default()
-    }
-}
-
-fn item_error(id: String, code: &str, msg: impl Into<String>) -> ItemResult {
-    ItemResult {
-        id,
-        outcome: ItemError { code: code.to_owned(), message: msg.into(), ..Default::default() }.into(),
-        ..Default::default()
-    }
-}
+// Contract-level error + the provider batch-row builder live in `fleet-proto-provider`.
+use fleet_proto_provider::rent_error;
+pub use fleet_proto_provider::ProviderError;
 
 // ─────────────────────── the provider ───────────────────────
 
@@ -98,40 +51,19 @@ impl VastProvider {
 
     /// POST /searches — vast "asks" query. Endpoint/fields per current vast docs.
     async fn find_offers(&self, f: Option<&Filter>, limit: u32) -> Result<Vec<InstanceOffer>, ProviderError> {
-        let query = json!({
-            "verified": { "eq": true },
-            "external": { "eq": false },
-            "rentable": { "eq": true },
-            "num_gpus":     f.and_then(|f| f.num_gpus).map(|n| json!({ "eq": n })),
-            "gpu_name":     f.and_then(|f| f.gpu_name.as_deref()).map(|s| json!({ "eq": s })),
-            "cpu_cores":    f.and_then(|f| f.min_cpu_cores).map(|n| json!({ "gte": n })),
-            "ram":          f.and_then(|f| f.min_ram_mb).map(|n| json!({ "gte": n })),
-            "disk_space":   f.and_then(|f| f.min_disk_gb).map(|n| json!({ "gte": n })),
-            "dph_total":    f.and_then(|f| f.max_price_per_hour).map(|d| json!({ "lte": d })),
-            "geolocation":  f.and_then(|f| f.location.as_deref()).map(|s| json!({ "eq": s })),
-        });
-        let resp: serde_json::Value = self.post("searches", &query).await?;
-        let offers = resp["offers"].as_array().cloned().unwrap_or_default();
-        Ok(offers.iter().take(limit as usize).map(map_offer).collect())
+        let resp = self.post("searches", &offer_query(f)).await?;
+        Ok(field_array(&resp, "offers").iter().take(limit as usize).map(map_offer).collect())
     }
 
     /// GET /instances — the stateless provider's only "memory" for rent replays.
     async fn list(&self) -> Result<Vec<Instance>, ProviderError> {
-        let resp: serde_json::Value = self.get("instances").await?;
-        let arr = resp["instances"].as_array().cloned().unwrap_or_default();
-        Ok(arr.iter().map(map_instance).collect())
+        let resp = self.get("instances").await?;
+        Ok(field_array(&resp, "instances").iter().map(map_instance).collect())
     }
 
     /// PUT /asks/{id}/rent/ — `onstart_cmd` runs before the image command (vast).
     async fn rent(&self, offer_id: &str, image: &str, onstart_cmd: Option<&str>) -> Result<Instance, ProviderError> {
-        let body = json!({
-            "client_id": "me",
-            "image": image,
-            "onstart_cmd": onstart_cmd.unwrap_or(""),
-            "runtype": "ssh",        // vast needs a runtype; ssh-mode without keys = script-only access
-            "disk": 16,
-        });
-        let resp: serde_json::Value = self.put(&format!("asks/{offer_id}/rent/"), &body).await?;
+        let resp = self.put(&format!("asks/{offer_id}/rent/"), &rent_body(image, onstart_cmd)).await?;
         Ok(map_instance(&resp["new_instance"]))
     }
 
@@ -139,6 +71,39 @@ impl VastProvider {
     /// Remove handler applies the call's `RemoveOptions.missing` policy.
     async fn destroy(&self, instance_id: &str) -> Result<(), ProviderError> {
         self.delete(&format!("instances/{instance_id}/")).await
+    }
+
+    // ── per-item helpers for the batch RPCs (contract-level, not upstream) ──
+
+    /// Rent one requested item. `prior` (if any) is the replay case: the offer is
+    /// already ours, so return the existing instance and rent nothing — this is
+    /// what makes `rent_instances` idempotent (first call wins on entrypoint_script).
+    async fn rent_one(&self, item: RentInstancesItem, prior: Option<Instance>) -> RentInstancesResult {
+        if let Some(inst) = prior {
+            return RentInstancesResult { offer_id: item.offer_id, outcome: inst.into(), ..Default::default() };
+        }
+        if item.image.is_empty() {
+            return rent_error(&item.offer_id, "INVALID_ARGUMENT", "image is required");
+        }
+        match self.rent(&item.offer_id, &item.image, item.entrypoint_script.as_deref()).await {
+            Ok(inst) => RentInstancesResult { offer_id: item.offer_id, outcome: inst.into(), ..Default::default() },
+            // UNAVAILABLE per item: caller may safely retry the WHOLE call
+            // (idempotency_level = IDEMPOTENT makes that legal).
+            Err(e) => rent_error(&item.offer_id, e.code(), e.to_string()),
+        }
+    }
+
+    /// Remove one id honoring `dry_run` and the missing policy (already-gone = success).
+    async fn remove_one(&self, id: String, dry_run: bool, error_on_missing: bool) -> ItemResult {
+        if dry_run {
+            return item_ack(id, "NO ACTION", "dry_run: nothing mutated");
+        }
+        match self.destroy(&id).await {
+            Ok(()) => item_ack(id, "DONE", ""),
+            Err(ProviderError::NotFound(m)) if error_on_missing => item_error(id, "NOT_FOUND", m),
+            Err(ProviderError::NotFound(_)) => item_ack(id, "NO ACTION", "already absent"),
+            Err(e) => item_error(id, "UNAVAILABLE", e.to_string()),
+        }
     }
 
     // ── reqwest plumbing: bearer auth + upstream error mapping ──
@@ -199,7 +164,7 @@ impl VastProvider {
 }
 
 // alias used above to keep the filter code readable
-type Filter = proto::provider::SearchInstancesFilter;
+type Filter = fleet_proto_provider::provider::SearchInstancesFilter;
 
 // ─────────────────────── THE CONTRACT ───────────────────────
 
@@ -233,41 +198,16 @@ impl Provider for VastProvider {
             .filter_map(|i| (!i.offer_id.is_empty()).then(|| (i.offer_id.clone(), i)))
             .collect();
 
-        // Per-item outcomes, in request order (`buffered`, not `buffer_unordered`).
+        // Per-item outcomes, in request order (`buffered`, not `buffer_unordered`);
+        // fan-out capped at 8 concurrent upstream calls.
         let results = futures::stream::iter(items.into_iter().map(|item| {
-            let existing = existing.get(&item.offer_id).cloned();
-            let this = self; // fan-out capped at 8 concurrent upstream calls
-            async move {
-                match existing {
-                    // CASE replay: offer already rented by us → return it, rent nothing.
-                    // entrypoint_script is ignored (first call wins) — keeps us idempotent.
-                    Some(inst) => RentInstancesResult {
-                        offer_id: item.offer_id,
-                        outcome: inst.into(),
-                        ..Default::default()
-                    },
-                    None => {
-                        let image = item.image.clone().unwrap_or_else(|| DEFAULT_IMAGE.into());
-                        let rented = this
-                            .rent(&item.offer_id, &image, item.entrypoint_script.as_deref())
-                            .await;
-                        match rented {
-                            Ok(inst) => RentInstancesResult {
-                                offer_id: item.offer_id,
-                                outcome: inst.into(),
-                                ..Default::default()
-                            },
-                            Err(ProviderError::NotFound(m)) => rent_error(&item.offer_id, "NOT_FOUND", m),
-                            Err(ProviderError::InvalidArgument(m)) => rent_error(&item.offer_id, "INVALID_ARGUMENT", m),
-                            Err(ProviderError::FailedPrecondition(m)) => rent_error(&item.offer_id, "FAILED_PRECONDITION", m),
-                            // UNAVAILABLE per item: caller may safely retry the WHOLE call
-                            // (idempotency_level = IDEMPOTENT makes that legal).
-                            Err(ProviderError::Unavailable(m)) => rent_error(&item.offer_id, "UNAVAILABLE", m),
-                        }
-                    }
-                }
-            }
-        })).buffered(8).collect().await;
+            let prior = existing.get(&item.offer_id).cloned();
+            let this = self;
+            async move { this.rent_one(item, prior).await }
+        }))
+        .buffered(8)
+        .collect()
+        .await;
 
         Response::ok(RentInstancesResponse { results, ..Default::default() })
     }
@@ -293,61 +233,108 @@ impl Provider for VastProvider {
         let dry_run = opts.dry_run;
         let error_on_missing = opts.missing.as_known() == Some(MissingPolicy::MISSING_POLICY_ERROR);
 
-        let results = futures::stream::iter(msg.ids.into_iter().map(|id| async move {
-            if dry_run {
-                return item_ack(id, "NO ACTION", "dry_run: nothing mutated");
-            }
-            let removed = self.destroy(&id).await;
-            match removed {
-                Ok(()) => item_ack(id, "DONE", ""),
-                Err(ProviderError::NotFound(m)) if error_on_missing => item_error(id, "NOT_FOUND", m),
-                Err(ProviderError::NotFound(_)) => item_ack(id, "NO ACTION", "already absent"),
-                Err(e) => item_error(id, "UNAVAILABLE", e.to_string()),
-            }
-        })).buffered(8).collect().await;
+        let results = futures::stream::iter(msg.ids.into_iter().map(|id| {
+            let this = self;
+            async move { this.remove_one(id, dry_run, error_on_missing).await }
+        }))
+        .buffered(8)
+        .collect()
+        .await;
 
         Response::ok(ItemResults { results, ..Default::default() })
     }
 }
 
-// ─────────────────────── upstream JSON → contract messages ───────────────────────
+// ─────────────────────── conversion layer: JSON ⇄ contract messages ───────────────────────
 
-const DEFAULT_IMAGE: &str = "pytorch/pytorch:latest"; // pick your fleet default
+/// SearchInstancesFilter → vast "asks" query.
+fn offer_query(f: Option<&Filter>) -> serde_json::Value {
+    json!({
+        "verified": { "eq": true },
+        "external": { "eq": false },
+        "rentable": { "eq": true },
+        "num_gpus":     f.and_then(|f| f.num_gpus).map(|n| json!({ "eq": n })),
+        "gpu_name":     f.and_then(|f| f.gpu_name.as_deref()).map(|s| json!({ "eq": s })),
+        "cpu_cores":    f.and_then(|f| f.min_cpu_cores).map(|n| json!({ "gte": n })),
+        "ram":          f.and_then(|f| f.min_ram_mb).map(|n| json!({ "gte": n })),
+        "disk_space":   f.and_then(|f| f.min_disk_gb).map(|n| json!({ "gte": n })),
+        "dph_total":    f.and_then(|f| f.max_price_per_hour).map(|d| json!({ "lte": d })),
+        "geolocation":  f.and_then(|f| f.location.as_deref()).map(|s| json!({ "eq": s })),
+    })
+}
+
+/// Rent request → vast rent body (`onstart_cmd` runs before the image command).
+fn rent_body(image: &str, onstart_cmd: Option<&str>) -> serde_json::Value {
+    json!({
+        "client_id": "me",
+        "image": image,
+        "onstart_cmd": onstart_cmd.unwrap_or(""),
+        "runtype": "ssh",        // vast needs a runtype; ssh-mode without keys = script-only access
+        "disk": 16,
+    })
+}
+
+// ── upstream JSON → contract (field accessors + response mappers) ──
+
+fn field_array<'a>(v: &'a serde_json::Value, key: &str) -> &'a [serde_json::Value] {
+    v[key].as_array().map(Vec::as_slice).unwrap_or(&[])
+}
+
+/// Scalar → String: vast ids may be numbers or strings; missing/null → "".
+fn field_str(v: &serde_json::Value, key: &str) -> String {
+    match &v[key] {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Null => String::new(),
+        other => other.to_string(),
+    }
+}
+
+fn field_u64(v: &serde_json::Value, key: &str) -> u64 {
+    v[key].as_u64().unwrap_or(0)
+}
+
+fn field_f64(v: &serde_json::Value, key: &str) -> f64 {
+    v[key].as_f64().unwrap_or(0.0)
+}
+
+/// vast `actual_status` → the contract's InstanceStatus.
+fn map_status(raw: &str) -> InstanceStatus {
+    match raw {
+        "running" => InstanceStatus::Running,
+        "loading" | "created" | "provisioning" => InstanceStatus::Pending,
+        "stopped" | "offline" => InstanceStatus::Stopped,
+        "exited" => InstanceStatus::Error,
+        _ => InstanceStatus::Unspecified,
+    }
+}
 
 fn map_offer(v: &serde_json::Value) -> InstanceOffer {
     InstanceOffer {
-        id: v["id"].to_string().trim_matches('"').to_owned(),
-        gpu_name: v["gpu_name"].as_str().unwrap_or("").into(),
-        num_gpus: v["num_gpus"].as_u64().unwrap_or(0) as u32,
-        cpu_cores: v["cpu_cores"].as_u64().unwrap_or(0) as u32,
-        ram_mb: (v["ram"].as_f64().unwrap_or(0.0) / 1e6) as u64,   // vast reports bytes
-        disk_gb: (v["disk_space"].as_f64().unwrap_or(0.0) / 1e3) as u64,
-        location: v["geolocation"].as_str().unwrap_or("").into(),
-        price_per_hour: v["dph_total"].as_f64().unwrap_or(0.0),
-        reliability: v["reliability2"].as_f64().unwrap_or(0.0),
+        id: field_str(v, "id"),
+        gpu_name: field_str(v, "gpu_name"),
+        num_gpus: field_u64(v, "num_gpus") as u32,
+        cpu_cores: field_u64(v, "cpu_cores") as u32,
+        ram_mb: (field_f64(v, "ram") / 1e6) as u64,        // vast reports bytes
+        disk_gb: (field_f64(v, "disk_space") / 1e3) as u64,
+        location: field_str(v, "geolocation"),
+        price_per_hour: field_f64(v, "dph_total"),
+        reliability: field_f64(v, "reliability2"),
         ..Default::default()
     }
 }
 
 fn map_instance(v: &serde_json::Value) -> Instance {
-    let raw = v["actual_status"].as_str().unwrap_or("");
+    let raw = field_str(v, "actual_status");
     Instance {
-        id: v["id"].to_string().trim_matches('"').to_owned(),
-        offer_id: v["ask_contract_id"].to_string().trim_matches('"').to_owned(),
-        status: match raw {
-            "running" => InstanceStatus::Running,
-            "loading" | "created" | "provisioning" => InstanceStatus::Pending,
-            "stopped" | "offline" => InstanceStatus::Stopped,
-            "exited" => InstanceStatus::Error,
-            _ => InstanceStatus::Unspecified,
-        }
-        .into(),
-        provider_status: raw.into(),   // verbatim, per contract
-        gpu_name: v["gpu_name"].as_str().unwrap_or("").into(),
-        num_gpus: v["num_gpus"].as_u64().unwrap_or(0) as u32,
-        price_per_hour: v["dph_total"].as_f64().unwrap_or(0.0),
-        location: v["geolocation"].as_str().unwrap_or("").into(),
-        started_at_unix_ms: (v["start_date"].as_f64().unwrap_or(0.0) * 1000.0) as i64,
+        id: field_str(v, "id"),
+        offer_id: field_str(v, "ask_contract_id"),
+        status: map_status(&raw).into(),
+        provider_status: raw,   // verbatim, per contract
+        gpu_name: field_str(v, "gpu_name"),
+        num_gpus: field_u64(v, "num_gpus") as u32,
+        price_per_hour: field_f64(v, "dph_total"),
+        location: field_str(v, "geolocation"),
+        started_at_unix_ms: (field_f64(v, "start_date") * 1000.0) as i64,
         ..Default::default()
     }
 }
