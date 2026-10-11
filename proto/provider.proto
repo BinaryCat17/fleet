@@ -8,6 +8,12 @@ import "common.proto";
 // BUSINESS CONTRACT — stateless adapter over a rental marketplace (for example vast.ai).
 // All truth about instances comes from upstream; nothing is stored here.
 
+// Error model (errors-as-data):
+//   * ConnectError (transport) is produced ONLY by admission — a malformed
+//     request is refused ("the call was not accepted");
+//   * every admitted call COMPLETES; domain errors travel in-band: per entity
+//     in batch responses (`common.Error` rows), or as the single `error`
+//     field of a read response.
 service Provider {
   rpc SearchInstances (SearchInstancesRequest) returns (SearchInstancesResponse) {
     option idempotency_level = NO_SIDE_EFFECTS;
@@ -47,6 +53,7 @@ message SearchInstancesFilter {
 
 message SearchInstancesResponse {
   repeated InstanceOffer offers = 1;
+  common.Error error = 2;   // set iff the domain call failed (then `offers` is empty)
 }
 
 message InstanceOffer {
@@ -93,6 +100,7 @@ message ListInstancesRequest {
 
 message ListInstancesResponse {
   repeated Instance instances = 1;
+  common.Error error = 2;   // set iff the domain call failed (then `instances` is empty)
 }
 
 message Instance {

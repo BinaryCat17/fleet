@@ -22,8 +22,15 @@ async fn main() -> anyhow::Result<()> {
 
     // ── step 4: smoke call — proves client ↔ server end-to-end ───
     match client.list_instances(ListInstancesRequest::default()).await {
-        Ok(resp) => println!("provider online: {} instance(s)", resp.into_owned().instances.len()),
-        // reachable but failed upstream (e.g. no real VAST_API_KEY) — still proves the RPC path
+        // domain outcome travels in-band (errors-as-data)
+        Ok(resp) => {
+            let resp = resp.into_owned();
+            match resp.error.as_option() {
+                Some(e) => println!("provider reachable; list_instances failed: {} {}", e.code, e.message),
+                None => println!("provider online: {} instance(s)", resp.instances.len()),
+            }
+        }
+        // transport/admission failure — the call was not accepted
         Err(e) => println!("provider reachable; list_instances: {e}"),
     }
 

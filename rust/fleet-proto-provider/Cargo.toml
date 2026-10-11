@@ -20,7 +20,7 @@ connectrpc = { version = "0.9", features = ["axum"] }
 buffa = { version = "0.9", features = ["json"] }
 buffa-types = { version = "0.9", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
-thiserror = "2"
+futures = "0.3" # map_*: buffered batch fan-out
 
 [build-dependencies]
 connectrpc-build = "0.9"

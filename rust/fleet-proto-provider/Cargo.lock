@@ -327,9 +327,9 @@ dependencies = [
  "connectrpc",
  "connectrpc-build",
  "fleet-proto-common",
+ "futures",
  "protoc-bin-vendored",
  "serde",
- "thiserror",
 ]
 
 [[package]]

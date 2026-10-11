@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 # --- ConnectRPC contract + shared `common` (compiled once in the contract crates) ---
-fleet-proto-provider = { path = "../rust/fleet-proto-provider" }  # provider.proto + ProviderError/helpers
+fleet-proto-provider = { path = "../rust/fleet-proto-provider" }  # provider.proto + admit_*/map_* (contract gate)
 fleet-proto-common = { path = "../rust/fleet-proto-common" }      # common.proto types (via extern_path)
 connectrpc = { version = "0.9", features = ["axum"] }              # axum: Router::into_axum_service
 connectrpc-health = { version = "0.9", default-features = false }   # server side only
@@ -17,7 +17,6 @@ buffa = { version = "0.9", features = ["json"] }
 buffa-types = { version = "0.9", features = ["json"] }            # google.protobuf.* (via common.proto)
 serde = { version = "1", features = ["derive"] }
 axum = { version = "0.8", features = ["http2"] }                    # h2c for gRPC clients
-futures = "0.3"                                                     # buffered batch fan-out
 anyhow = "1"
 thiserror = "2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal"] }

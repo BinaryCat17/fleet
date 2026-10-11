@@ -413,9 +413,9 @@ dependencies = [
  "connectrpc",
  "connectrpc-build",
  "fleet-proto-common",
+ "futures",
  "protoc-bin-vendored",
  "serde",
- "thiserror",
 ]
 
 [[package]]
@@ -431,7 +431,6 @@ dependencies = [
  "connectrpc-reflection",
  "fleet-proto-common",
  "fleet-proto-provider",
- "futures",
  "reqwest",
  "serde",
  "serde_json",
