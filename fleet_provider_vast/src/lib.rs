@@ -4,16 +4,15 @@
 
 use std::collections::HashMap;
 
-use connectrpc::{RequestContext, Response, ServiceRequest, ServiceResult, ServiceStream};
-
-use fleet_proto_common::ack;
-use fleet_proto_common::common::remove_options::MissingPolicy;
-use fleet_proto_common::common::{
-    Ack, AckCode, Error, ErrorCode, ItemResults, RemoveOptions, RemoveRequest,
+use connectrpc::{
+    ConnectError, ErrorCode, RequestContext, Response, ServiceRequest, ServiceResult, ServiceStream,
 };
+
+use fleet_proto_common::common::remove_options::MissingPolicy;
+use fleet_proto_common::common::{ItemResult, ItemResultCode, RemoveOptions, RemoveRequest};
 use fleet_proto_provider::provider::{
     Instance, InstanceOffer, ListInstancesRequest, Provider, RentInstancesItem, RentInstancesRequest,
-    RentInstancesResult, SearchInstancesRequest,
+    SearchInstancesRequest,
 };
 use fleet_proto_provider::server::{
     admit_list_instances, admit_remove_instances, admit_rent_instances, admit_search_instances,
@@ -28,7 +27,7 @@ pub use vast::VastProvider;
 async fn search_one(
     p: &VastProvider,
     msg: &SearchInstancesRequest,
-) -> Result<Vec<InstanceOffer>, Error> {
+) -> Result<Vec<InstanceOffer>, ConnectError> {
     let limit = if msg.limit == 0 { 25 } else { msg.limit }; // 0 = provider default
     p.find_offers(msg.filter.as_option(), limit).await
 }
@@ -37,26 +36,30 @@ async fn rent_one(
     p: &VastProvider,
     item: RentInstancesItem,
     rented: &HashMap<String, Instance>,
-) -> Result<Instance, Error> {
+) -> Result<Instance, ConnectError> {
     if let Some(inst) = rented.get(&item.offer_id) {
         return Ok(inst.clone()); // idempotent replay: this offer is already rented
     }
     p.rent(&item.offer_id, &item.image, item.entrypoint_script.as_deref()).await
 }
 
-async fn list_one(p: &VastProvider) -> Result<Vec<Instance>, Error> {
+async fn list_one(p: &VastProvider) -> Result<Vec<Instance>, ConnectError> {
     p.list().await
 }
 
-async fn remove_one(p: &VastProvider, id: String, opts: RemoveOptions) -> Result<Ack, Error> {
+async fn remove_one(
+    p: &VastProvider,
+    id: String,
+    opts: RemoveOptions,
+) -> Result<ItemResultCode, ConnectError> {
     if opts.dry_run {
-        return Ok(ack(AckCode::ACK_CODE_NO_ACTION, "dry_run: nothing mutated"));
+        return Ok(ItemResultCode::ITEM_RESULT_CODE_NO_ACTION); // dry_run: nothing mutated
     }
     let error_on_missing = opts.missing.as_known() == Some(MissingPolicy::MISSING_POLICY_ERROR);
     match p.destroy(&id).await {
-        Ok(()) => Ok(ack(AckCode::ACK_CODE_DONE, "")),
-        Err(e) if e.code == ErrorCode::ERROR_CODE_NOT_FOUND && !error_on_missing => {
-            Ok(ack(AckCode::ACK_CODE_NO_ACTION, "already absent"))
+        Ok(()) => Ok(ItemResultCode::ITEM_RESULT_CODE_DONE),
+        Err(e) if e.code == ErrorCode::NotFound && !error_on_missing => {
+            Ok(ItemResultCode::ITEM_RESULT_CODE_NO_ACTION) // already absent
         }
         Err(e) => Err(e),
     }
@@ -83,7 +86,7 @@ impl Provider for VastProvider {
         &self,
         _ctx: RequestContext,
         req: ServiceRequest<'_, RentInstancesRequest>,
-    ) -> ServiceResult<ServiceStream<RentInstancesResult>> {
+    ) -> ServiceResult<ServiceStream<Instance>> {
         let msg = req.to_owned_message();
         admit_rent_instances(&msg)?;
 
@@ -94,7 +97,7 @@ impl Provider for VastProvider {
                 .map(|i| (i.offer_id.clone(), i))
                 .collect(),
             // pre-flight failed → call-level failure (connectrpc error, before any row)
-            Err(e) => return Err(e.into()),
+            Err(e) => return Err(e),
         };
         Response::ok(map_rent(&msg, |item| rent_one(self, item, &rented)).await)
     }
@@ -115,7 +118,7 @@ impl Provider for VastProvider {
         &self,
         _ctx: RequestContext,
         req: ServiceRequest<'_, RemoveRequest>,
-    ) -> ServiceResult<ItemResults> {
+    ) -> ServiceResult<ServiceStream<ItemResult>> {
         let msg = req.to_owned_message();
         admit_remove_instances(&msg)?;
         Response::ok(map_remove(&msg, |id, opts| remove_one(self, id, opts)).await)

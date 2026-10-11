@@ -8,11 +8,11 @@ service Host {
 
   // ═══════════════════════ feature: ORDERS ══════════════════════════════
 
-  rpc PlaceOrders  (PlaceOrdersRequest)  returns (common.ItemResults) {
+  rpc PlaceOrders  (PlaceOrdersRequest)  returns (stream common.ItemResult) {
     option idempotency_level = IDEMPOTENT;
   }
 
-  rpc RemoveOrders (common.RemoveRequest) returns (common.ItemResults) {
+  rpc RemoveOrders (common.RemoveRequest) returns (stream common.ItemResult) {
     option idempotency_level = IDEMPOTENT;
   }
 
@@ -22,11 +22,11 @@ service Host {
 
   // ═══════════════════════ feature: BUDGETS ═════════════════════════════
 
-  rpc PlaceBudgets (PlaceBudgetsRequest) returns (common.ItemResults) {
+  rpc PlaceBudgets (PlaceBudgetsRequest) returns (stream common.ItemResult) {
     option idempotency_level = IDEMPOTENT;
   }
 
-  rpc RemoveBudgets(common.RemoveRequest) returns (common.ItemResults) {
+  rpc RemoveBudgets(common.RemoveRequest) returns (stream common.ItemResult) {
     option idempotency_level = IDEMPOTENT;
   }
 
@@ -36,11 +36,11 @@ service Host {
 
   // ═══════════════════════ feature: SPECS ═══════════════════════════════
 
-  rpc PlaceSpecs   (PlaceSpecsRequest) returns (common.ItemResults) {
+  rpc PlaceSpecs   (PlaceSpecsRequest)   returns (stream common.ItemResult) {
     option idempotency_level = IDEMPOTENT;
   }
 
-  rpc RemoveSpecs  (common.RemoveRequest) returns (common.ItemResults) {
+  rpc RemoveSpecs  (common.RemoveRequest) returns (stream common.ItemResult) {
     option idempotency_level = IDEMPOTENT;
   }
 
@@ -60,7 +60,7 @@ service Host {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
 
-  rpc RenewShips   (RenewShipsRequest)   returns (common.ItemResults) {
+  rpc RenewShips   (RenewShipsRequest)   returns (stream common.ItemResult) {
     option idempotency_level = IDEMPOTENT;
   }
 

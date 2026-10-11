@@ -2,8 +2,7 @@
 
 use serde_json::json;
 
-use fleet_proto_common::common::{Error, ErrorCode};
-use fleet_proto_common::err;
+use connectrpc::{ConnectError, ErrorCode};
 use fleet_proto_provider::provider::{Instance, InstanceOffer, InstanceStatus, SearchInstancesFilter};
 
 // ─────────────────────── the provider ───────────────────────
@@ -33,26 +32,26 @@ impl VastProvider {
         &self,
         f: Option<&SearchInstancesFilter>,
         limit: u32,
-    ) -> Result<Vec<InstanceOffer>, Error> {
+    ) -> Result<Vec<InstanceOffer>, ConnectError> {
         let resp = self.post("searches", &offer_query(f)).await?;
         Ok(field_array(&resp, "offers").iter().take(limit as usize).map(map_offer).collect())
     }
 
     /// GET /instances — the stateless provider's only "memory" for rent replays.
-    pub(crate) async fn list(&self) -> Result<Vec<Instance>, Error> {
+    pub(crate) async fn list(&self) -> Result<Vec<Instance>, ConnectError> {
         let resp = self.get("instances").await?;
         Ok(field_array(&resp, "instances").iter().map(map_instance).collect())
     }
 
     /// PUT /asks/{id}/rent/ — `onstart_cmd` runs before the image command (vast).
-    pub(crate) async fn rent(&self, offer_id: &str, image: &str, onstart_cmd: Option<&str>) -> Result<Instance, Error> {
+    pub(crate) async fn rent(&self, offer_id: &str, image: &str, onstart_cmd: Option<&str>) -> Result<Instance, ConnectError> {
         let resp = self.put(&format!("asks/{offer_id}/rent/"), &rent_body(image, onstart_cmd)).await?;
         Ok(map_instance(&resp["new_instance"]))
     }
 
-    /// DELETE /instances/{id}/ — a missing id surfaces as `common.Error` with
-    /// code `ERROR_CODE_NOT_FOUND`; the remove handler applies the call's missing policy.
-    pub(crate) async fn destroy(&self, instance_id: &str) -> Result<(), Error> {
+    /// DELETE /instances/{id}/ — a missing id surfaces as `not_found`; the remove
+    /// handler applies the call's missing policy.
+    pub(crate) async fn destroy(&self, instance_id: &str) -> Result<(), ConnectError> {
         self.delete(&format!("instances/{instance_id}/")).await
     }
 
@@ -63,7 +62,7 @@ impl VastProvider {
         method: reqwest::Method,
         path: &str,
         body: Option<&serde_json::Value>,
-    ) -> Result<serde_json::Value, Error> {
+    ) -> Result<serde_json::Value, ConnectError> {
         let req = self
             .http
             .request(method, format!("{}/{}", self.base, path))
@@ -72,41 +71,41 @@ impl VastProvider {
             Some(body) => req.json(body),
             None => req,
         };
-        let resp = req.send().await.map_err(|e| err(ErrorCode::ERROR_CODE_UNAVAILABLE, e.to_string()))?;
+        let resp = req.send().await.map_err(|e| ConnectError::new(ErrorCode::Unavailable, e.to_string()))?;
 
         let status = resp.status();
         if status == reqwest::StatusCode::NOT_FOUND {
-            return Err(err(ErrorCode::ERROR_CODE_NOT_FOUND, path));
+            return Err(ConnectError::new(ErrorCode::NotFound, path));
         }
         if !status.is_success() {
             let msg = format!("{} {}: {}", status.as_u16(), status.canonical_reason().unwrap_or(""), path);
             return Err(match status.as_u16() {
-                400 | 422 => err(ErrorCode::ERROR_CODE_INVALID_ARGUMENT, msg),
-                500..=599 => err(ErrorCode::ERROR_CODE_UNAVAILABLE, msg),
-                _ => err(ErrorCode::ERROR_CODE_FAILED_PRECONDITION, msg),
+                400 | 422 => ConnectError::new(ErrorCode::InvalidArgument, msg),
+                500..=599 => ConnectError::new(ErrorCode::Unavailable, msg),
+                _ => ConnectError::new(ErrorCode::FailedPrecondition, msg),
             });
         }
 
-        let text = resp.text().await.map_err(|e| err(ErrorCode::ERROR_CODE_UNAVAILABLE, e.to_string()))?;
+        let text = resp.text().await.map_err(|e| ConnectError::new(ErrorCode::Unavailable, e.to_string()))?;
         if text.is_empty() {
             return Ok(serde_json::Value::Null); // e.g. DELETE with an empty body
         }
-        serde_json::from_str(&text).map_err(|e| err(ErrorCode::ERROR_CODE_UNAVAILABLE, format!("bad upstream JSON: {e}")))
+        serde_json::from_str(&text).map_err(|e| ConnectError::new(ErrorCode::Unavailable, format!("bad upstream JSON: {e}")))
     }
 
-    async fn get(&self, path: &str) -> Result<serde_json::Value, Error> {
+    async fn get(&self, path: &str) -> Result<serde_json::Value, ConnectError> {
         self.call(reqwest::Method::GET, path, None).await
     }
 
-    async fn post(&self, path: &str, body: &serde_json::Value) -> Result<serde_json::Value, Error> {
+    async fn post(&self, path: &str, body: &serde_json::Value) -> Result<serde_json::Value, ConnectError> {
         self.call(reqwest::Method::POST, path, Some(body)).await
     }
 
-    async fn put(&self, path: &str, body: &serde_json::Value) -> Result<serde_json::Value, Error> {
+    async fn put(&self, path: &str, body: &serde_json::Value) -> Result<serde_json::Value, ConnectError> {
         self.call(reqwest::Method::PUT, path, Some(body)).await
     }
 
-    async fn delete(&self, path: &str) -> Result<(), Error> {
+    async fn delete(&self, path: &str) -> Result<(), ConnectError> {
         self.call(reqwest::Method::DELETE, path, None).await.map(|_| ())
     }
 }

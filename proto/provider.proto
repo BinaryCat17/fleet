@@ -12,7 +12,7 @@ service Provider {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
 
-  rpc RentInstances   (RentInstancesRequest)   returns (stream RentInstancesResult) {
+  rpc RentInstances   (RentInstancesRequest)   returns (stream Instance) {
     option idempotency_level = IDEMPOTENT;
   }
 
@@ -20,17 +20,10 @@ service Provider {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
 
-  rpc RemoveInstances (common.RemoveRequest)   returns (common.ItemResults) {
+  rpc RemoveInstances (common.RemoveRequest)   returns (stream common.ItemResult) {
     option idempotency_level = IDEMPOTENT;
   }
 }
-
-// Error channel (streaming RPCs above): every stream row is a data row — there
-// are no `common.Error` rows. Any failure (rejected request, upstream outage,
-// per-item rent failure, broken stream) is a connectrpc error on the stream;
-// rows already received stand. The outputs are `stream X`, not `repeated X`,
-// precisely because only a stream can carry such an error.
-// (RemoveInstances keeps per-item rows: a batch delete must report each id.)
 
 // ─────────────────────────── 1. search ───────────────────────────
 
@@ -73,13 +66,6 @@ message RentInstancesItem {
   string offer_id = 1;
   string image = 2;
   optional string entrypoint_script = 3;
-}
-
-// One row per successfully rented instance, keyed to the request item.
-// A failed rent produces no row: the stream ends with a connectrpc error.
-message RentInstancesResult {
-  string offer_id = 1;
-  Instance instance = 2;
 }
 
 // ─────────────────────────── 3. list ───────────────────────────
