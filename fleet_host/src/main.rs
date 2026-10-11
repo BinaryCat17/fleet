@@ -22,16 +22,12 @@ async fn main() -> anyhow::Result<()> {
 
     // ── step 4: smoke call — proves client ↔ server end-to-end ───
     match client.list_instances(ListInstancesRequest::default()).await {
-        // domain outcome travels in-band (errors-as-data)
         Ok(resp) => {
             let resp = resp.into_owned();
-            match resp.error.as_option() {
-                Some(e) => println!("provider reachable; list_instances failed: {} {}", e.code, e.message),
-                None => println!("provider online: {} instance(s)", resp.instances.len()),
-            }
+            println!("provider online: {} instance(s)", resp.instances.len());
         }
-        // transport/admission failure — the call was not accepted
-        Err(e) => println!("provider reachable; list_instances: {e}"),
+        // call-level failure (admission / transport / upstream) — connectrpc error
+        Err(e) => println!("list_instances failed: {e}"),
     }
 
     Ok(())

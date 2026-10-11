@@ -7,13 +7,10 @@ import "common.proto";
 // ═══════════════════════════════════════════════════════════════════════════
 // BUSINESS CONTRACT — stateless adapter over a rental marketplace (for example vast.ai).
 // All truth about instances comes from upstream; nothing is stored here.
+//
+// Error channel: call-level failure (rejected request, upstream unreachable)
+// -> connectrpc error; in-band rows carry only per-item batch outcomes.
 
-// Error model (errors-as-data):
-//   * ConnectError (transport) is produced ONLY by admission — a malformed
-//     request is refused ("the call was not accepted");
-//   * every admitted call COMPLETES; domain errors travel in-band: per entity
-//     in batch responses (`common.Error` rows), or as the single `error`
-//     field of a read response.
 service Provider {
   rpc SearchInstances (SearchInstancesRequest) returns (SearchInstancesResponse) {
     option idempotency_level = NO_SIDE_EFFECTS;
@@ -53,11 +50,10 @@ message SearchInstancesFilter {
 
 message SearchInstancesResponse {
   repeated InstanceOffer offers = 1;
-  common.Error error = 2;   // set iff the domain call failed (then `offers` is empty)
 }
 
 message InstanceOffer {
-  string id = 1;                  // pass into RentInstancesRequest.items[].offer_id
+  string id = 1;           // pass into RentInstancesRequest.items[].offer_id
   string gpu_name = 2;
   uint32 num_gpus = 3;
   uint32 cpu_cores = 4;
@@ -81,7 +77,7 @@ message RentInstancesItem {
 }
 
 message RentInstancesResponse {
-  repeated RentInstancesResult results = 1;
+  repeated RentInstancesResult results = 1;   // one row per requested item
 }
 
 message RentInstancesResult {
@@ -100,7 +96,6 @@ message ListInstancesRequest {
 
 message ListInstancesResponse {
   repeated Instance instances = 1;
-  common.Error error = 2;   // set iff the domain call failed (then `instances` is empty)
 }
 
 message Instance {

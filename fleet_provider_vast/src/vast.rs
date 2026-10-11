@@ -1,13 +1,8 @@
 ﻿// fleet_provider_vast/src/vast.rs
-//
-// The vast.ai upstream layer: request plumbing, JSON ⇄ contract conversion,
-// and the raw upstream calls (`find_offers`/`list`/`rent`/`destroy`). Errors
-// are `common.Error` values with contract codes (errors-as-data); admission
-// and batch packing live in `lib.rs` / `fleet-proto-provider::server`.
 
 use serde_json::json;
 
-use fleet_proto_common::common::Error as CommonError;
+use fleet_proto_common::common::{Error, ErrorCode};
 use fleet_proto_common::err;
 use fleet_proto_provider::provider::{Instance, InstanceOffer, InstanceStatus, SearchInstancesFilter};
 
@@ -38,26 +33,26 @@ impl VastProvider {
         &self,
         f: Option<&SearchInstancesFilter>,
         limit: u32,
-    ) -> Result<Vec<InstanceOffer>, CommonError> {
+    ) -> Result<Vec<InstanceOffer>, Error> {
         let resp = self.post("searches", &offer_query(f)).await?;
         Ok(field_array(&resp, "offers").iter().take(limit as usize).map(map_offer).collect())
     }
 
     /// GET /instances — the stateless provider's only "memory" for rent replays.
-    pub(crate) async fn list(&self) -> Result<Vec<Instance>, CommonError> {
+    pub(crate) async fn list(&self) -> Result<Vec<Instance>, Error> {
         let resp = self.get("instances").await?;
         Ok(field_array(&resp, "instances").iter().map(map_instance).collect())
     }
 
     /// PUT /asks/{id}/rent/ — `onstart_cmd` runs before the image command (vast).
-    pub(crate) async fn rent(&self, offer_id: &str, image: &str, onstart_cmd: Option<&str>) -> Result<Instance, CommonError> {
+    pub(crate) async fn rent(&self, offer_id: &str, image: &str, onstart_cmd: Option<&str>) -> Result<Instance, Error> {
         let resp = self.put(&format!("asks/{offer_id}/rent/"), &rent_body(image, onstart_cmd)).await?;
         Ok(map_instance(&resp["new_instance"]))
     }
 
     /// DELETE /instances/{id}/ — a missing id surfaces as `common.Error` with
-    /// code `NOT_FOUND`; the remove handler applies the call's missing policy.
-    pub(crate) async fn destroy(&self, instance_id: &str) -> Result<(), CommonError> {
+    /// code `ERROR_CODE_NOT_FOUND`; the remove handler applies the call's missing policy.
+    pub(crate) async fn destroy(&self, instance_id: &str) -> Result<(), Error> {
         self.delete(&format!("instances/{instance_id}/")).await
     }
 
@@ -68,7 +63,7 @@ impl VastProvider {
         method: reqwest::Method,
         path: &str,
         body: Option<&serde_json::Value>,
-    ) -> Result<serde_json::Value, CommonError> {
+    ) -> Result<serde_json::Value, Error> {
         let req = self
             .http
             .request(method, format!("{}/{}", self.base, path))
@@ -77,41 +72,41 @@ impl VastProvider {
             Some(body) => req.json(body),
             None => req,
         };
-        let resp = req.send().await.map_err(|e| err("UNAVAILABLE", e.to_string()))?;
+        let resp = req.send().await.map_err(|e| err(ErrorCode::ERROR_CODE_UNAVAILABLE, e.to_string()))?;
 
         let status = resp.status();
         if status == reqwest::StatusCode::NOT_FOUND {
-            return Err(err("NOT_FOUND", path));
+            return Err(err(ErrorCode::ERROR_CODE_NOT_FOUND, path));
         }
         if !status.is_success() {
             let msg = format!("{} {}: {}", status.as_u16(), status.canonical_reason().unwrap_or(""), path);
             return Err(match status.as_u16() {
-                400 | 422 => err("INVALID_ARGUMENT", msg),
-                500..=599 => err("UNAVAILABLE", msg),
-                _ => err("FAILED_PRECONDITION", msg),
+                400 | 422 => err(ErrorCode::ERROR_CODE_INVALID_ARGUMENT, msg),
+                500..=599 => err(ErrorCode::ERROR_CODE_UNAVAILABLE, msg),
+                _ => err(ErrorCode::ERROR_CODE_FAILED_PRECONDITION, msg),
             });
         }
 
-        let text = resp.text().await.map_err(|e| err("UNAVAILABLE", e.to_string()))?;
+        let text = resp.text().await.map_err(|e| err(ErrorCode::ERROR_CODE_UNAVAILABLE, e.to_string()))?;
         if text.is_empty() {
             return Ok(serde_json::Value::Null); // e.g. DELETE with an empty body
         }
-        serde_json::from_str(&text).map_err(|e| err("UNAVAILABLE", format!("bad upstream JSON: {e}")))
+        serde_json::from_str(&text).map_err(|e| err(ErrorCode::ERROR_CODE_UNAVAILABLE, format!("bad upstream JSON: {e}")))
     }
 
-    async fn get(&self, path: &str) -> Result<serde_json::Value, CommonError> {
+    async fn get(&self, path: &str) -> Result<serde_json::Value, Error> {
         self.call(reqwest::Method::GET, path, None).await
     }
 
-    async fn post(&self, path: &str, body: &serde_json::Value) -> Result<serde_json::Value, CommonError> {
+    async fn post(&self, path: &str, body: &serde_json::Value) -> Result<serde_json::Value, Error> {
         self.call(reqwest::Method::POST, path, Some(body)).await
     }
 
-    async fn put(&self, path: &str, body: &serde_json::Value) -> Result<serde_json::Value, CommonError> {
+    async fn put(&self, path: &str, body: &serde_json::Value) -> Result<serde_json::Value, Error> {
         self.call(reqwest::Method::PUT, path, Some(body)).await
     }
 
-    async fn delete(&self, path: &str) -> Result<(), CommonError> {
+    async fn delete(&self, path: &str) -> Result<(), Error> {
         self.call(reqwest::Method::DELETE, path, None).await.map(|_| ())
     }
 }

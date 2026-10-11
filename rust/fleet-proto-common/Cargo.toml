@@ -19,6 +19,9 @@ buffa = { version = "0.9", features = ["json"] }
 buffa-types = { version = "0.9", features = ["json"] }   # google.protobuf.Timestamp
 serde = { version = "1", features = ["derive"] }
 
+# --- transport bridge: `From` impls (contract error -> connectrpc status) ---
+connectrpc = "0.9"
+
 [build-dependencies]
 connectrpc-build = "0.9"
 protoc-bin-vendored = "3"        # vendored protoc => no apt/apk, no system deps

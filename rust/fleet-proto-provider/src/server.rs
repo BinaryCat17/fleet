@@ -6,7 +6,7 @@ use connectrpc::{ConnectError, ErrorCode};
 use futures::StreamExt;
 
 use fleet_proto_common::common::{
-    Ack, Error as CommonError, ItemResult, ItemResults, RemoveOptions, RemoveRequest,
+    Ack, Error, ItemResult, ItemResults, RemoveOptions, RemoveRequest,
 };
 
 use super::provider::{
@@ -65,7 +65,7 @@ pub fn admit_remove_instances(msg: &RemoveRequest) -> Result<(), ConnectError> {
 pub async fn map_rent<F, Fut>(msg: &RentInstancesRequest, one: F) -> RentInstancesResponse
 where
     F: FnMut(RentInstancesItem) -> Fut,
-    Fut: Future<Output = Result<Instance, CommonError>>,
+    Fut: Future<Output = Result<Instance, Error>>,
 {
     let offer_ids: Vec<String> = msg.items.iter().map(|item| item.offer_id.clone()).collect();
     let outcomes = futures::stream::iter(msg.items.clone().into_iter().map(one))
@@ -91,7 +91,7 @@ where
 pub async fn map_remove<F, Fut>(msg: &RemoveRequest, mut one: F) -> ItemResults
 where
     F: FnMut(String, RemoveOptions) -> Fut,
-    Fut: Future<Output = Result<Ack, CommonError>>,
+    Fut: Future<Output = Result<Ack, Error>>,
 {
     let opts = msg.options.as_option().cloned().unwrap_or_default(); // call policy, shared by every id
     let ids = msg.ids.clone();

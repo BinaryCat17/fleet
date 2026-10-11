@@ -10,14 +10,33 @@ import "google/protobuf/timestamp.proto";
 // ═════════════════════════ 1. COMMAND RESULTS ══════════════════════════════
 // Per-item outcome, shared by all Place* / Remove* responses.
 
+enum AckCode {
+  ACK_CODE_UNSPECIFIED = 0;
+  ACK_CODE_DONE = 1;
+  ACK_CODE_CREATED = 2;
+  ACK_CODE_UPDATED = 3;
+  ACK_CODE_NO_ACTION = 4;
+  ACK_CODE_REPLACED = 5;
+}
+
+enum ErrorCode {
+  ERROR_CODE_UNSPECIFIED = 0;
+  ERROR_CODE_NOT_FOUND = 1;
+  ERROR_CODE_ALREADY_EXISTS = 2;
+  ERROR_CODE_INVALID_ARGUMENT = 3;
+  ERROR_CODE_UNAVAILABLE = 4;
+  ERROR_CODE_RESOURCE_EXHAUSTED = 5;
+  ERROR_CODE_FAILED_PRECONDITION = 6;
+  ERROR_CODE_INTERNAL = 7;
+}
+
 message Ack {
-  string code = 1;    // "DONE", "CREATED", "UPDATED", "NO ACTION", "REPLACED"
+  AckCode code = 1;
   string message = 2;
 }
 
 message Error {
-  string code = 1;    // "NOT_FOUND", "ALREADY_EXISTS", "INVALID_ARGUMENT",
-                      // "UNAVAILABLE", "RESOURCE_EXHAUSTED", ...
+  ErrorCode code = 1;
   string message = 2;
 }
 
@@ -29,6 +48,13 @@ message ItemResult {
   }
 }
 
+// Error-channel rule (whole API):
+//   - call-level failure (rejected request, or admitted but unable to produce
+//     the result — e.g. storage/upstream down, broken stream) -> connectrpc
+//     error; a broken stream is incomplete — resume via ReadOptions cursor;
+//   - per-item batch outcome -> the rows below (the one thing a single status
+//     code cannot express).
+// Generic Place*/Remove* response: one row per requested id.
 message ItemResults {
   repeated ItemResult results = 1;
 }
@@ -74,8 +100,9 @@ message RemoveRequest {
 }
 
 // ═════════════════════ 4. LIST / READ (event log) ══════════════════════════════
-// Read verbs: unified snapshot / event-log access for every List* RPC.
-
+// Read verbs: unified snapshot / event-log access for every List* RPC.// A broken stream (e.g. storage failure) ends with a connectrpc error — the
+// stream is then incomplete; resume from the last seen cursor
+// (ReadOptions.after_event_id).
 message ReadOptions {
 
   // How items are delivered on the stream.

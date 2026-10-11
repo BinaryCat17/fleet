@@ -399,6 +399,7 @@ version = "0.1.0"
 dependencies = [
  "buffa",
  "buffa-types",
+ "connectrpc",
  "connectrpc-build",
  "protoc-bin-vendored",
  "serde",

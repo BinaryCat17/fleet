@@ -8,7 +8,9 @@ use connectrpc::{RequestContext, Response, ServiceRequest, ServiceResult};
 
 use fleet_proto_common::ack;
 use fleet_proto_common::common::remove_options::MissingPolicy;
-use fleet_proto_common::common::{Ack, Error as CommonError, ItemResults, RemoveOptions, RemoveRequest};
+use fleet_proto_common::common::{
+    Ack, AckCode, Error, ErrorCode, ItemResults, RemoveOptions, RemoveRequest,
+};
 use fleet_proto_provider::provider::{
     Instance, ListInstancesRequest, ListInstancesResponse, Provider, RentInstancesItem,
     RentInstancesRequest, RentInstancesResponse, SearchInstancesRequest, SearchInstancesResponse,
@@ -23,40 +25,45 @@ pub use vast::VastProvider;
 
 // ─────────────────────── (feature)_one: the domain logic ───────────────────────
 
-async fn search_one(p: &VastProvider, msg: &SearchInstancesRequest) -> SearchInstancesResponse {
+async fn search_one(
+    p: &VastProvider,
+    msg: &SearchInstancesRequest,
+) -> Result<SearchInstancesResponse, Error> {
     let limit = if msg.limit == 0 { 25 } else { msg.limit }; // 0 = provider default
-    match p.find_offers(msg.filter.as_option(), limit).await {
-        Ok(offers) => SearchInstancesResponse { offers, ..Default::default() },
-        Err(e) => SearchInstancesResponse { error: e.into(), ..Default::default() },
-    }
+    Ok(SearchInstancesResponse {
+        offers: p.find_offers(msg.filter.as_option(), limit).await?,
+        ..Default::default()
+    })
 }
 
 async fn rent_one(
     p: &VastProvider,
     item: RentInstancesItem,
     rented: &HashMap<String, Instance>,
-) -> Result<Instance, CommonError> {
+) -> Result<Instance, Error> {
     if let Some(inst) = rented.get(&item.offer_id) {
         return Ok(inst.clone()); // idempotent replay: this offer is already rented
     }
     p.rent(&item.offer_id, &item.image, item.entrypoint_script.as_deref()).await
 }
 
-async fn list_one(p: &VastProvider) -> ListInstancesResponse {
-    match p.list().await {
-        Ok(instances) => ListInstancesResponse { instances, ..Default::default() },
-        Err(e) => ListInstancesResponse { error: e.into(), ..Default::default() },
-    }
+async fn list_one(p: &VastProvider) -> Result<ListInstancesResponse, Error> {
+    Ok(ListInstancesResponse {
+        instances: p.list().await?,
+        ..Default::default()
+    })
 }
 
-async fn remove_one(p: &VastProvider, id: String, opts: RemoveOptions) -> Result<Ack, CommonError> {
+async fn remove_one(p: &VastProvider, id: String, opts: RemoveOptions) -> Result<Ack, Error> {
     if opts.dry_run {
-        return Ok(ack("NO ACTION", "dry_run: nothing mutated"));
+        return Ok(ack(AckCode::ACK_CODE_NO_ACTION, "dry_run: nothing mutated"));
     }
     let error_on_missing = opts.missing.as_known() == Some(MissingPolicy::MISSING_POLICY_ERROR);
     match p.destroy(&id).await {
-        Ok(()) => Ok(ack("DONE", "")),
-        Err(e) if e.code == "NOT_FOUND" && !error_on_missing => Ok(ack("NO ACTION", "already absent")),
+        Ok(()) => Ok(ack(AckCode::ACK_CODE_DONE, "")),
+        Err(e) if e.code == ErrorCode::ERROR_CODE_NOT_FOUND && !error_on_missing => {
+            Ok(ack(AckCode::ACK_CODE_NO_ACTION, "already absent"))
+        }
         Err(e) => Err(e),
     }
 }
@@ -72,7 +79,8 @@ impl Provider for VastProvider {
     ) -> ServiceResult<SearchInstancesResponse> {
         let msg = req.to_owned_message();
         admit_search_instances(&msg)?;
-        Response::ok(search_one(self, &msg).await)
+        let resp = search_one(self, &msg).await?; // `From<Error> for ConnectError` does the rest
+        Response::ok(resp)
     }
 
     // 2. rent — IDEMPOTENT by construction (list-then-rent keyed on offer_id)
@@ -90,7 +98,8 @@ impl Provider for VastProvider {
                 .filter(|i| !i.offer_id.is_empty())
                 .map(|i| (i.offer_id.clone(), i))
                 .collect(),
-            Err(e) => return Response::ok(map_rent(&msg, move |_| std::future::ready(Err(e.clone()))).await),
+            // pre-flight failed → call-level failure (connectrpc error)
+            Err(e) => return Err(e.into()),
         };
         Response::ok(map_rent(&msg, |item| rent_one(self, item, &rented)).await) // batch: rent_one per item
     }
@@ -103,7 +112,8 @@ impl Provider for VastProvider {
     ) -> ServiceResult<ListInstancesResponse> {
         let msg = req.to_owned_message();
         admit_list_instances(&msg)?;
-        Response::ok(list_one(self).await)
+        let resp = list_one(self).await?; // `From<Error> for ConnectError` does the rest
+        Response::ok(resp)
     }
 
     // 4. remove — idempotent: already-gone = success (per RemoveOptions.missing)
