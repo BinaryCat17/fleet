@@ -6,21 +6,17 @@ import "common.proto";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // BUSINESS CONTRACT — stateless adapter over a rental marketplace (for example vast.ai).
-// All truth about instances comes from upstream; nothing is stored here.
-//
-// Error channel: call-level failure (rejected request, upstream unreachable)
-// -> connectrpc error; in-band rows carry only per-item batch outcomes.
 
 service Provider {
-  rpc SearchInstances (SearchInstancesRequest) returns (SearchInstancesResponse) {
+  rpc SearchInstances (SearchInstancesRequest) returns (stream InstanceOffer) {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
 
-  rpc RentInstances   (RentInstancesRequest)   returns (RentInstancesResponse) {
+  rpc RentInstances   (RentInstancesRequest)   returns (stream RentInstancesResult) {
     option idempotency_level = IDEMPOTENT;
   }
 
-  rpc ListInstances   (ListInstancesRequest)   returns (ListInstancesResponse) {
+  rpc ListInstances   (ListInstancesRequest)   returns (stream Instance) {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
 
@@ -28,6 +24,13 @@ service Provider {
     option idempotency_level = IDEMPOTENT;
   }
 }
+
+// Error channel (streaming RPCs above): every stream row is a data row — there
+// are no `common.Error` rows. Any failure (rejected request, upstream outage,
+// per-item rent failure, broken stream) is a connectrpc error on the stream;
+// rows already received stand. The outputs are `stream X`, not `repeated X`,
+// precisely because only a stream can carry such an error.
+// (RemoveInstances keeps per-item rows: a batch delete must report each id.)
 
 // ─────────────────────────── 1. search ───────────────────────────
 
@@ -46,10 +49,6 @@ message SearchInstancesFilter {
   optional uint64 min_disk_gb = 5;
   optional double max_price_per_hour = 6;
   optional string location = 7;
-}
-
-message SearchInstancesResponse {
-  repeated InstanceOffer offers = 1;
 }
 
 message InstanceOffer {
@@ -72,20 +71,15 @@ message RentInstancesRequest {
 
 message RentInstancesItem {
   string offer_id = 1;
-  string image = 2;               // REQUIRED: container image to boot — no provider default
+  string image = 2;
   optional string entrypoint_script = 3;
 }
 
-message RentInstancesResponse {
-  repeated RentInstancesResult results = 1;   // one row per requested item
-}
-
+// One row per successfully rented instance, keyed to the request item.
+// A failed rent produces no row: the stream ends with a connectrpc error.
 message RentInstancesResult {
   string offer_id = 1;
-  oneof outcome {
-    Instance instance = 2;
-    common.Error error = 3;
-  }
+  Instance instance = 2;
 }
 
 // ─────────────────────────── 3. list ───────────────────────────
@@ -94,15 +88,11 @@ message ListInstancesRequest {
 
 }
 
-message ListInstancesResponse {
-  repeated Instance instances = 1;
-}
-
 message Instance {
   string id = 1;
   string offer_id = 2;
   InstanceStatus status = 3;
-  string provider_status = 4;     // raw upstream status, verbatim
+  string provider_status = 4;
   string gpu_name = 5;
   uint32 num_gpus = 6;
   double price_per_hour = 7;

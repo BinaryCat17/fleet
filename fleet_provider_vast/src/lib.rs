@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use connectrpc::{RequestContext, Response, ServiceRequest, ServiceResult};
+use connectrpc::{RequestContext, Response, ServiceRequest, ServiceResult, ServiceStream};
 
 use fleet_proto_common::ack;
 use fleet_proto_common::common::remove_options::MissingPolicy;
@@ -12,12 +12,12 @@ use fleet_proto_common::common::{
     Ack, AckCode, Error, ErrorCode, ItemResults, RemoveOptions, RemoveRequest,
 };
 use fleet_proto_provider::provider::{
-    Instance, ListInstancesRequest, ListInstancesResponse, Provider, RentInstancesItem,
-    RentInstancesRequest, RentInstancesResponse, SearchInstancesRequest, SearchInstancesResponse,
+    Instance, InstanceOffer, ListInstancesRequest, Provider, RentInstancesItem, RentInstancesRequest,
+    RentInstancesResult, SearchInstancesRequest,
 };
 use fleet_proto_provider::server::{
     admit_list_instances, admit_remove_instances, admit_rent_instances, admit_search_instances,
-    map_remove, map_rent,
+    map_remove, map_rent, stream_rows,
 };
 
 mod vast;
@@ -28,12 +28,9 @@ pub use vast::VastProvider;
 async fn search_one(
     p: &VastProvider,
     msg: &SearchInstancesRequest,
-) -> Result<SearchInstancesResponse, Error> {
+) -> Result<Vec<InstanceOffer>, Error> {
     let limit = if msg.limit == 0 { 25 } else { msg.limit }; // 0 = provider default
-    Ok(SearchInstancesResponse {
-        offers: p.find_offers(msg.filter.as_option(), limit).await?,
-        ..Default::default()
-    })
+    p.find_offers(msg.filter.as_option(), limit).await
 }
 
 async fn rent_one(
@@ -47,11 +44,8 @@ async fn rent_one(
     p.rent(&item.offer_id, &item.image, item.entrypoint_script.as_deref()).await
 }
 
-async fn list_one(p: &VastProvider) -> Result<ListInstancesResponse, Error> {
-    Ok(ListInstancesResponse {
-        instances: p.list().await?,
-        ..Default::default()
-    })
+async fn list_one(p: &VastProvider) -> Result<Vec<Instance>, Error> {
+    p.list().await
 }
 
 async fn remove_one(p: &VastProvider, id: String, opts: RemoveOptions) -> Result<Ack, Error> {
@@ -71,24 +65,25 @@ async fn remove_one(p: &VastProvider, id: String, opts: RemoveOptions) -> Result
 // ─────────────────────── Server implementation ───────────────────────
 
 impl Provider for VastProvider {
-    // 1. search — pure read
+    // 1. search — pure read; offers stream out one row at a time
     async fn search_instances(
         &self,
         _ctx: RequestContext,
         req: ServiceRequest<'_, SearchInstancesRequest>,
-    ) -> ServiceResult<SearchInstancesResponse> {
+    ) -> ServiceResult<ServiceStream<InstanceOffer>> {
         let msg = req.to_owned_message();
         admit_search_instances(&msg)?;
-        let resp = search_one(self, &msg).await?; // `From<Error> for ConnectError` does the rest
-        Response::ok(resp)
+        Response::ok(stream_rows(search_one(self, &msg).await?))
     }
 
-    // 2. rent — IDEMPOTENT by construction (list-then-rent keyed on offer_id)
+    // 2. rent — IDEMPOTENT by construction (list-then-rent keyed on offer_id).
+    //    One result row per rented item; a failed item is a connectrpc error
+    //    on the stream, not a row.
     async fn rent_instances(
         &self,
         _ctx: RequestContext,
         req: ServiceRequest<'_, RentInstancesRequest>,
-    ) -> ServiceResult<RentInstancesResponse> {
+    ) -> ServiceResult<ServiceStream<RentInstancesResult>> {
         let msg = req.to_owned_message();
         admit_rent_instances(&msg)?;
 
@@ -98,22 +93,21 @@ impl Provider for VastProvider {
                 .filter(|i| !i.offer_id.is_empty())
                 .map(|i| (i.offer_id.clone(), i))
                 .collect(),
-            // pre-flight failed → call-level failure (connectrpc error)
+            // pre-flight failed → call-level failure (connectrpc error, before any row)
             Err(e) => return Err(e.into()),
         };
-        Response::ok(map_rent(&msg, |item| rent_one(self, item, &rented)).await) // batch: rent_one per item
+        Response::ok(map_rent(&msg, |item| rent_one(self, item, &rented)).await)
     }
 
-    // 3. list — pure read, verbatim upstream truth
+    // 3. list — pure read, verbatim upstream truth; instances stream out one row at a time
     async fn list_instances(
         &self,
         _ctx: RequestContext,
         req: ServiceRequest<'_, ListInstancesRequest>,
-    ) -> ServiceResult<ListInstancesResponse> {
+    ) -> ServiceResult<ServiceStream<Instance>> {
         let msg = req.to_owned_message();
         admit_list_instances(&msg)?;
-        let resp = list_one(self).await?; // `From<Error> for ConnectError` does the rest
-        Response::ok(resp)
+        Response::ok(stream_rows(list_one(self).await?))
     }
 
     // 4. remove — idempotent: already-gone = success (per RemoveOptions.missing)

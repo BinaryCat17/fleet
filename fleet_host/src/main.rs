@@ -1,5 +1,5 @@
 ﻿use connectrpc::client::{ClientConfig, Http2Connection};
-use fleet_host::proto::provider::{ListInstancesRequest, ProviderClient};
+use fleet_host::proto::provider::{Instance, ListInstancesRequest, ProviderClient};
 use std::time::Duration;
 
 #[tokio::main]
@@ -20,13 +20,28 @@ async fn main() -> anyhow::Result<()> {
     // ── step 3: generated client ──────────────────────────────────
     let client = ProviderClient::new(transport, config);         // 🔄 VARIABLE: which service client
 
-    // ── step 4: smoke call — proves client ↔ server end-to-end ───
+    // ── step 4: smoke call — proves client ↔ server end-to-end (server-stream) ──
     match client.list_instances(ListInstancesRequest::default()).await {
-        Ok(resp) => {
-            let resp = resp.into_owned();
-            println!("provider online: {} instance(s)", resp.instances.len());
+        Ok(mut stream) => {
+            let mut count = 0u32;
+            loop {
+                match stream.message::<Instance>().await {
+                    Ok(Some(msg)) => {
+                        let inst = msg.to_owned_message();
+                        println!("  instance {} ({})", inst.id, inst.provider_status);
+                        count += 1;
+                    }
+                    Ok(None) => break, // clean end of stream — the RPC succeeded
+                    // connectrpc error raised mid-stream (e.g. upstream failure)
+                    Err(e) => {
+                        println!("list_instances stream failed after {count} row(s): {e}");
+                        return Ok(());
+                    }
+                }
+            }
+            println!("provider online: {count} instance(s)");
         }
-        // call-level failure (admission / transport / upstream) — connectrpc error
+        // call-level failure (admission / transport) — connectrpc error
         Err(e) => println!("list_instances failed: {e}"),
     }
 

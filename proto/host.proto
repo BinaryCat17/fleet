@@ -9,15 +9,14 @@ service Host {
   // ═══════════════════════ feature: ORDERS ══════════════════════════════
 
   rpc PlaceOrders  (PlaceOrdersRequest)  returns (common.ItemResults) {
-    option idempotency_level = IDEMPOTENT;  // mode = CREATE: a retry reports
-                                            // "ALREADY_EXISTS" -> treat as success
-  }
-
-  rpc RemoveOrders (common.RemoveRequest)       returns (common.ItemResults) {
     option idempotency_level = IDEMPOTENT;
   }
 
-  rpc ListOrders   (ListOrdersRequest)   returns (stream OrderEvent) {
+  rpc RemoveOrders (common.RemoveRequest) returns (common.ItemResults) {
+    option idempotency_level = IDEMPOTENT;
+  }
+
+  rpc ListOrders   (ListOrdersRequest) returns (stream OrderEvent) {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
 
@@ -27,25 +26,25 @@ service Host {
     option idempotency_level = IDEMPOTENT;
   }
 
-  rpc RemoveBudgets(common.RemoveRequest)       returns (common.ItemResults) {
+  rpc RemoveBudgets(common.RemoveRequest) returns (common.ItemResults) {
     option idempotency_level = IDEMPOTENT;
   }
 
-  rpc ListBudgets  (ListBudgetsRequest)  returns (stream BudgetEvent) {
+  rpc ListBudgets  (ListBudgetsRequest) returns (stream BudgetEvent) {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
 
   // ═══════════════════════ feature: SPECS ═══════════════════════════════
 
-  rpc PlaceSpecs   (PlaceSpecsRequest)   returns (common.ItemResults) {
+  rpc PlaceSpecs   (PlaceSpecsRequest) returns (common.ItemResults) {
     option idempotency_level = IDEMPOTENT;
   }
 
-  rpc RemoveSpecs  (common.RemoveRequest)       returns (common.ItemResults) {
+  rpc RemoveSpecs  (common.RemoveRequest) returns (common.ItemResults) {
     option idempotency_level = IDEMPOTENT;
   }
 
-  rpc ListSpecs    (ListSpecsRequest)    returns (stream SpecEvent) {
+  rpc ListSpecs    (ListSpecsRequest) returns (stream SpecEvent) {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
 
@@ -73,13 +72,13 @@ service Host {
 
   // ═══════════════════════ feature: ALARMS ═════════════════════════════
   
-  rpc ListAlarms (ListAlarmsRequest) returns (stream AlarmEvent) {
+  rpc ListAlarms (ListAlarmsRequest)    returns (stream AlarmEvent) {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
 
   // ═══════════════════════ feature: LOGS ═════════════════════════════════
   
-  rpc ListLogs     (ListLogsRequest)     returns (stream LogEvent) {
+  rpc ListLogs (ListLogsRequest)     returns (stream LogEvent) {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
 
@@ -92,7 +91,6 @@ message Order {
   string name = 2;
   string budget_id = 3;
   string spec_id = 4;
-  // domain fields go here
 }
 
 message PlaceOrdersRequest {
@@ -102,7 +100,6 @@ message PlaceOrdersRequest {
 
 message ListOrdersRequest {
   common.ReadOptions options = 1;
-  // order-specific filters can go here
 }
 
 message OrderEvent {
@@ -121,7 +118,6 @@ message Budget {
   optional double max_price_per_hour = 3;
   optional double lease_timeout = 4;
   optional double health_timeout = 5;
-  // domain fields go here
 }
 
 message PlaceBudgetsRequest {
@@ -132,7 +128,6 @@ message PlaceBudgetsRequest {
 message ListBudgetsRequest {
   common.ReadOptions options = 1;
   optional common.Ids filter_to_orders = 2;
-  // budget-specific filters can go here
 }
 
 message BudgetEvent {
@@ -213,7 +208,6 @@ message ListShipsRequest {
 
 message RenewShipsRequest {
   common.ReadOptions options = 1;
-  // empty filters: renew ALL ships; otherwise renew only matching ships
   optional common.Ids filter_to_orders = 2;
   optional common.Ids filter_to_ships = 3;
 }

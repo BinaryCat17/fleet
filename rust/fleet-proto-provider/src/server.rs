@@ -2,7 +2,7 @@
 
 use std::future::Future;
 
-use connectrpc::{ConnectError, ErrorCode};
+use connectrpc::{ConnectError, ErrorCode, ServiceStream};
 use futures::StreamExt;
 
 use fleet_proto_common::common::{
@@ -10,8 +10,8 @@ use fleet_proto_common::common::{
 };
 
 use super::provider::{
-    self, Instance, ListInstancesRequest, RentInstancesItem, RentInstancesRequest,
-    RentInstancesResponse, RentInstancesResult, SearchInstancesRequest,
+    Instance, ListInstancesRequest, RentInstancesItem, RentInstancesRequest, RentInstancesResult,
+    SearchInstancesRequest,
 };
 
 // ─────────────────────── admission: the gate to domain logic ───────────────────────
@@ -62,30 +62,37 @@ pub fn admit_remove_instances(msg: &RemoveRequest) -> Result<(), ConnectError> {
 
 // ─────────────────── batch stage: (feature)_one over the batch ───────────────────
 
-pub async fn map_rent<F, Fut>(msg: &RentInstancesRequest, one: F) -> RentInstancesResponse
+pub fn stream_rows<T: Send + 'static>(rows: Vec<T>) -> ServiceStream<T> {
+    Box::pin(futures::stream::iter(rows.into_iter().map(Ok::<_, ConnectError>)))
+}
+
+pub async fn map_rent<F, Fut>(msg: &RentInstancesRequest, one: F) -> ServiceStream<RentInstancesResult>
 where
     F: FnMut(RentInstancesItem) -> Fut,
     Fut: Future<Output = Result<Instance, Error>>,
 {
     let offer_ids: Vec<String> = msg.items.iter().map(|item| item.offer_id.clone()).collect();
     let outcomes = futures::stream::iter(msg.items.clone().into_iter().map(one))
-        .buffered(8)
+        .buffered(8) // bounded fan-out; outcomes stay in request order
         .collect::<Vec<_>>()
         .await;
 
-    let results = offer_ids
-        .into_iter()
-        .zip(outcomes)
-        .map(|(offer_id, outcome)| RentInstancesResult {
-            offer_id,
-            outcome: Some(match outcome {
-                Ok(inst) => provider::rent_instances_result::Outcome::from(inst),
-                Err(e) => provider::rent_instances_result::Outcome::from(e),
-            }),
-            ..Default::default()
-        })
-        .collect();
-    RentInstancesResponse { results, ..Default::default() }
+    let mut rows: Vec<Result<RentInstancesResult, ConnectError>> =
+        Vec::with_capacity(outcomes.len());
+    for (offer_id, outcome) in offer_ids.into_iter().zip(outcomes) {
+        match outcome {
+            Ok(instance) => rows.push(Ok(RentInstancesResult {
+                offer_id,
+                instance: instance.into(),
+                ..Default::default()
+            })),
+            Err(e) => {
+                rows.push(Err(ConnectError::from(e))); // ends the stream
+                break;
+            }
+        }
+    }
+    Box::pin(futures::stream::iter(rows))
 }
 
 pub async fn map_remove<F, Fut>(msg: &RemoveRequest, mut one: F) -> ItemResults
