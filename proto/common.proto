@@ -7,12 +7,6 @@ import "google/protobuf/timestamp.proto";
 // ═══════════════════════════════════════════════════════════════════════════
 // GENERIC CONTRACT TYPES (common.proto)
 
-// ═════════════════════════ 1. COMMAND RESULTS ══════════════════════════════
-// Per-item outcome row, shared by all Place* / Remove* streams.
-
-// What the call did to one item of a batch. Data, not an error channel:
-// failures are connectrpc errors on the stream. (What changed in the world,
-// as opposed to what a call did, lives in EventMeta.op.)
 enum ItemResultCode {
   ITEM_RESULT_CODE_UNSPECIFIED = 0;
   ITEM_RESULT_CODE_DONE      = 1;  // processed (remove / renew — no finer code)
@@ -26,15 +20,6 @@ message ItemResult {
   string id = 1;
   ItemResultCode code = 2;
 }
-
-// Error-channel rule (whole API):
-//   - every stream row is a data row: the id of an item plus what the call
-//     did to it (ItemResult.code);
-//   - ANY failure (rejected request, per-item failure, upstream/storage down,
-//     broken stream) is a connectrpc error on the stream, which ends it; rows
-//     already received stand. The calls are idempotent — re-issue to reconcile
-//     (list reads resume via ReadOptions.after_event_id).
-
 
 // ═════════════════════════════ 2. PLACE ════════════════════════════════════
 // Write verbs: create / update / upsert entities.
@@ -77,9 +62,7 @@ message RemoveRequest {
 
 // ═════════════════════ 4. LIST / READ (event log) ══════════════════════════════
 // Read verbs: unified snapshot / event-log access for every List* RPC.
-// A broken stream (e.g. storage failure) ends with a connectrpc error — the
-// stream is then incomplete; resume from the last seen cursor
-// (ReadOptions.after_event_id).
+
 message ReadOptions {
 
   // How items are delivered on the stream.
@@ -126,6 +109,9 @@ message EventMeta {
   // Cursor: pass back as ReadOptions.after_event_id to resume exactly here.
   // Make it sortable (ULID / snowflake) so the cursor is a well-defined order.
   string event_id = 1;
-  google.protobuf.Timestamp time = 2;
-  Op op = 3;
+  // The entity this event is about — always equal to `data.id` when `data` is
+  // present. On OP_DELETED `data` is absent and this is all that is left.
+  string id = 2;
+  google.protobuf.Timestamp time = 3;
+  Op op = 4;
 }

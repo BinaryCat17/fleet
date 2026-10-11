@@ -104,10 +104,7 @@ message ListOrdersRequest {
 
 message OrderEvent {
   common.EventMeta meta = 1;
-  oneof item {
-    Order data = 2;
-    string deleted_id = 3;
-  }
+  optional Order data = 2;   // absent = deleted (see meta.id / meta.op)
 }
 
 // ═══════════════════════ feature: BUDGETS ═════════════════════════════
@@ -132,10 +129,7 @@ message ListBudgetsRequest {
 
 message BudgetEvent {
   common.EventMeta meta = 1;
-  oneof item {
-    Budget data = 2; 
-    string deleted_id = 3;
-  }
+  optional Budget data = 2;  // absent = deleted (see meta.id / meta.op)
 }
 
 // ═══════════════════════ feature: SPECS ═══════════════════════════════
@@ -162,10 +156,7 @@ message ListSpecsRequest {
 
 message SpecEvent {
   common.EventMeta meta = 1;
-  oneof item {
-    Spec data = 2;
-    string deleted_id = 3;
-  }
+  optional Spec data = 2;  // absent = deleted (see meta.id / meta.op)
 }
 
 // ═══════════════════════ feature: KNOWN_MACHINES ══════════════════════════════
@@ -186,10 +177,7 @@ message ListKnownMachinesRequest {
 
 message KnownMachineEvent {
   common.EventMeta meta = 1;
-  oneof item {
-    KnownMachine data = 2;
-    string deleted_id = 3;
-  }
+  optional KnownMachine data = 2;  // absent = deleted (see meta.id / meta.op)
 }
 
 // ═══════════════════════ feature: SHIPS ══════════════════════════════
@@ -214,10 +202,7 @@ message RenewShipsRequest {
 
 message ShipEvent {
   common.EventMeta meta = 1;
-  oneof item {
-    Ship data = 2;
-    string deleted_id = 3;
-  }
+  optional Ship data = 2;  // absent = deleted (see meta.id / meta.op)
 }
 
 // ═══════════════════════ feature: STATUSES ══════════════════════════════
@@ -247,10 +232,7 @@ message ListStatusesRequest {
 
 message StatusEvent {
   common.EventMeta meta = 1;
-  oneof item {
-    Status data = 2;
-    string deleted_id = 3;
-  }
+  optional Status data = 2;  // absent = deleted (see meta.id / meta.op)
 }
 
 // ═══════════════════════ feature: ALARMS ══════════════════════════════
@@ -275,10 +257,7 @@ message ListAlarmsRequest {
 
 message AlarmEvent {
   common.EventMeta meta = 1;
-  oneof item {
-    Alarm data = 2;
-    string deleted_id = 3;
-  }
+  optional Alarm data = 2;  // absent = deleted (see meta.id / meta.op)
 }
 
 // ═══════════════════════ feature: LOGS ══════════════════════════════
@@ -309,8 +288,5 @@ message ListLogsRequest {
 
 message LogEvent {
   common.EventMeta meta = 1;
-  oneof item {
-    Log data = 2;
-    string deleted_id = 3;
-  }
+  optional Log data = 2;  // absent = deleted (see meta.id / meta.op)
 }
