@@ -1,9 +1,9 @@
-﻿// fleet_provider_vast/src/vast.rs
+﻿// fleet-provider-vast/src/vast.rs
 
 use serde_json::json;
 
 use connectrpc::{ConnectError, ErrorCode};
-use fleet_proto_provider::provider::{Instance, InstanceOffer, InstanceStatus, SearchInstancesFilter};
+use fleet_sdk::provider::{Instance, InstanceOffer, InstanceStatus, SearchInstancesFilter};
 
 // ─────────────────────── the provider ───────────────────────
 

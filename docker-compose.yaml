@@ -1,7 +1,9 @@
 ﻿services:
-  fleet_provider_vast:
-    build: ./fleet_provider_vast
-    image: fleet_provider_vast:latest
+  fleet-provider-vast:
+    build:
+      context: .                              # repo root: sdk/rust + proto/ are path-siblings
+      dockerfile: fleet-provider-vast/Dockerfile
+    image: fleet-provider-vast:latest
     ports:
       - "50051:50051"        # optional, for grpcurl debugging
     environment:
@@ -11,11 +13,13 @@
     # secrets:
     #   - vast_api_key
 
-  fleet_host:
-    build: ./fleet_host
-    image: fleet_host:latest
+  fleet-host:
+    build:
+      context: .
+      dockerfile: fleet-host/Dockerfile
+    image: fleet-host:latest
     environment:
-      PROVIDER_URL: http://fleet_provider_vast:50051   # compose DNS name
+      PROVIDER_URL: http://fleet-provider-vast:50051   # compose DNS name
       DATABASE_PATH: /data/fleet.db
     volumes:
       - fleet-data:/data                # sqlite file persists here

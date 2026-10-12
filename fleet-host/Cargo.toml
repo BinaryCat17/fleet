@@ -1,0 +1,25 @@
+﻿[package]
+name = "fleet-host"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+# --- the SDK over proto/: generated types + client stubs (one codegen pass) ---
+fleet-sdk = { path = "../sdk/rust" }
+# --- ConnectRPC client transport for the Provider contract ---
+connectrpc = { version = "0.9", features = ["client"] }
+http = "1"                            # http::Uri for the provider URL
+anyhow = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net"] }
+
+# --- SQLite compiled INTO the binary (no libsqlite3 in the image) ---
+#     (orders/budgets persistence per host.proto — not yet called from code)
+rusqlite = { version = "0.40", features = ["bundled"] }
+
+[profile.release]
+opt-level = "z"                 # image size == binary size on scratch
+lto = true
+codegen-units = 1
+strip = true

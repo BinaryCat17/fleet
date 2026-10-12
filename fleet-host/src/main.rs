@@ -1,12 +1,12 @@
 ﻿use connectrpc::client::{ClientConfig, Http2Connection};
-use fleet_host::proto::provider::{Instance, ListInstancesRequest, ProviderClient};
+use fleet_sdk::provider::{Instance, ListInstancesRequest, ProviderClient};
 use std::time::Duration;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // ── step 1: transport ─────────────────────────────────────────
     let provider_url: http::Uri = std::env::var("PROVIDER_URL")
-        .expect("PROVIDER_URL, e.g. http://fleet_provider_vast:50051")
+        .expect("PROVIDER_URL, e.g. http://fleet-provider-vast:50051")
         .parse()?;
 
     let transport = Http2Connection::connect_plaintext(provider_url.clone())
