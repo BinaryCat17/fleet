@@ -134,7 +134,8 @@ fn rent_body(image: &str, onstart_cmd: Option<&str>) -> serde_json::Value {
         "client_id": "me",
         "image": image,
         "onstart_cmd": onstart_cmd.unwrap_or(""),
-        "runtype": "ssh",        // vast needs a runtype; ssh-mode without keys = script-only access
+        "runtype": "args",       // args-mode: container runs the image CMD and exits when it
+                                 // does — the machine self-terminates
         "disk": 16,
     })
 }
